@@ -4,5 +4,6 @@ build/*
 dist/*
 *.spec
 *.db
+*.db-journal
 *.yml
 venv/*

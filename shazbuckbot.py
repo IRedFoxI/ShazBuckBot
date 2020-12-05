@@ -16,6 +16,9 @@ TOKEN = config['token']
 DATABASE = config['database']
 DISCORD_ID = config['discord_id']
 INIT_BAL = config['init_bal']
+BULLYBOT_DISCORD_ID = config['bullybot_discord_id']
+PUG_CHANNEL_ID = config['pug_channel_id']
+BOT_CHANNEL_ID = config['bot_channel_id']
 GAME_RESULT = Enum('GAME_RESULT', 'InProgress Team1 Team2 Tied')
 WAGER_RESULT = Enum('WAGER_RESULT', 'InProgress Won Lost Canceled')
 TIME_TO_WAIT = 0.21
@@ -283,7 +286,13 @@ def start_bot():
         for guild in bot.guilds:
             print(f'{guild.name}(id: {guild.id})')
 
+    def in_channel(channel_id):
+        def predicate(ctx):
+            return ctx.message.channel.id == channel_id
+        return commands.check(predicate)
+
     @bot.command(name='hello', help='Create account')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_hello(ctx):
         success = False
         discord_id = ctx.author.id
@@ -319,6 +328,7 @@ def start_bot():
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='balance', help='Check balance')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_balance(ctx):
         success = False
         discord_id = ctx.author.id
@@ -339,8 +349,8 @@ def start_bot():
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @bot.command(name='gift', help='Gift shazbucks')
-    async def cmd_gift(ctx, member: discord.Member, amount: int):
+    @bot.command(name='gift', help='Gift shazbucks to a discord user')
+    async def cmd_gift(ctx, receiver: discord.Member, amount: int):
         success = False
         discord_id = ctx.author.id
         cursor = conn.cursor()
@@ -360,7 +370,7 @@ def start_bot():
             if balance < amount:
                 msg = (
                     f'Hi {nick}, you do not have enough balance to transfer '
-                    f'{amount} shazbucks to {member.name}! Your current '
+                    f'{amount} shazbucks to {receiver.name}! Your current '
                     f'balance is {balance} shazbucks.'
                 )
                 await send_dm(sender_id, msg)
@@ -370,7 +380,7 @@ def start_bot():
                 )
                 await send_dm(sender_id, msg)
             else:
-                discord_id = member.id
+                discord_id = receiver.id
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT id, nick, balance FROM users WHERE discord_id = ?",
@@ -378,11 +388,11 @@ def start_bot():
                 )
                 data = cursor.fetchone()
                 if data is None:
-                    await ctx.author.create_dm()
-                    await ctx.author.dm_channel.send(
-                        f'Hi {ctx.author.name}, {member.name} does not have an'
+                    msg = (
+                        f'Hi {nick}, {receiver} does not have an'
                         f' account yet!'
                     )
+                    await send_dm(sender_id, msg)
                 else:
                     receiver_id = data[0]
                     receiver_nick = data[1]
@@ -391,7 +401,7 @@ def start_bot():
                     if create_transfer(conn, transfer) == 0:
                         msg = (
                             f'Hi {nick}, your gift of {amount} shazbucks to '
-                            f'{member.name} was somehow unsuccessful. Please '
+                            f'{receiver} was somehow unsuccessful. Please '
                             f'try again later.'
                         )
                         await send_dm(sender_id, msg)
@@ -405,8 +415,8 @@ def start_bot():
                         receiver_bal += amount
                         msg = (
                             f'Hi {nick}, your gift of {amount} shazbucks to '
-                            f'{member.name} was successful. Your new balance '
-                            f'is {balance} shazbucks.'
+                            f'{receiver.name} was successful. Your new balance'
+                            f' is {balance} shazbucks.'
                         )
                         await send_dm(sender_id, msg)
                         msg = (
@@ -421,12 +431,13 @@ def start_bot():
     @bot.command(name='bet', help='Bet shazbucks on a game. Winner should be '
                                   'either the name of the captain or 1, 2, '
                                   'Red or Blue.')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_bet(ctx, winner: str, amount: int):
         success = False
         discord_id = ctx.author.id
         cursor = conn.cursor()
-        cursor.execute("SELECT id, balance FROM users WHERE discord_id = ?",
-                       (discord_id,))
+        cursor.execute("SELECT id, nick, balance FROM users "
+                       "WHERE discord_id = ?", (discord_id,))
         data = cursor.fetchone()
         if data is None:
             await ctx.author.create_dm()
@@ -435,19 +446,20 @@ def start_bot():
             )
         else:
             user_id = data[0]
-            balance = data[1]
+            nick = data[1]
+            balance = data[2]
             if balance < amount:
-                await ctx.author.create_dm()
-                await ctx.author.dm_channel.send(
-                    f'Hi {ctx.author.name}, you do not have enough balance to '
+                msg = (
+                    f'Hi {nick}, you do not have enough balance to '
                     f'bet {amount} shazbucks! Your current balance is '
                     f'{balance} shazbucks.'
                 )
+                await send_dm(user_id, msg)
             elif amount < 0:
-                await ctx.author.create_dm()
-                await ctx.author.dm_channel.send(
-                    f'Hi {ctx.author.name}, you cannot bet a negative amount.'
+                msg = (
+                    f'Hi {nick}, you cannot bet a negative amount.'
                 )
+                await send_dm(user_id, msg)
             else:
                 cursor = conn.cursor()
                 cursor.execute("SELECT id,start_time,team1,team2 FROM "
@@ -455,11 +467,11 @@ def start_bot():
                                (GAME_RESULT.InProgress.value,))
                 games = cursor.fetchall()
                 if not games:
-                    await ctx.author.create_dm()
-                    await ctx.author.dm_channel.send(
-                        f'Hi {ctx.author.name}, no games running. Please wait '
-                        f'until teams are picked.'
+                    msg = (
+                        f'Hi {nick}. No games are running. Please wait until '
+                        f'teams are picked.'
                     )
+                    await send_dm(user_id, msg)
                 else:
                     game_id = games[0][0]
                     prediction = 0
@@ -476,39 +488,54 @@ def start_bot():
                             game_id = game[0]
                             prediction = GAME_RESULT.Team2.value
                     if prediction == 0:
-                        await ctx.author.create_dm()
-                        await ctx.author.dm_channel.send(
-                            f'Hi {ctx.author.name}, could not find a game '
+                        msg = (
+                            f'Hi {nick}, could not find a game '
                             f'captained by {winner}. Please check the spelling'
-                            f' or wait until the teams have been picked. '
+                            f' or wait until the teams have been picked.'
                         )
+                        await send_dm(user_id, msg)
                     else:
-                        wager = (user_id, game_id, prediction, amount)
-                        if create_wager(conn, wager) == 0:
-                            await ctx.author.create_dm()
-                            await ctx.author.dm_channel.send(
-                                f'Hi {ctx.author.name}, your bet of {amount} '
-                                f'shazbucks on {winner} was somehow '
-                                f'unsuccessful. Please try again later.'
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "SELECT prediction "
+                            "FROM wagers WHERE user_id = ? AND game_id = ?",
+                            (user_id, game_id,)
+                        )
+                        prev_wager = cursor.fetchone()
+                        if prev_wager and prediction != prev_wager[0]:
+                            msg = (
+                                f'Hi {nick}, you cannot bet against yourself!'
                             )
-                            print(
-                                f'{ctx.author.name} tried to bet {amount} '
-                                f'shazbucks on {winner} but something went '
-                                f'wrong. User id {game_id}, game id {game_id},'
-                                f' , prediction {prediction}.'
-                            )
+                            await send_dm(user_id, msg)
                         else:
-                            balance -= amount
-                            await ctx.author.create_dm()
-                            await ctx.author.dm_channel.send(
-                                f'Hi {ctx.author.name}, your bet of {amount} '
-                                f'shazbucks on {winner} was successful. Your '
-                                f'new balance is {balance} shazbucks.'
-                            )
-                            success = True
+                            wager = (user_id, game_id, prediction, amount)
+                            if create_wager(conn, wager) == 0:
+                                msg = (
+                                    f'Hi {nick}, your bet of {amount} '
+                                    f'shazbucks on {winner} was somehow '
+                                    f'unsuccessful. Please try again later.'
+                                )
+                                await send_dm(user_id, msg)
+                                print(
+                                    f'{nick} tried to bet {amount} shazbucks '
+                                    f'on {winner} but something went wrong. '
+                                    f'User id {user_id}, game id {game_id}, '
+                                    f'prediction {prediction}.'
+                                )
+                            else:
+                                balance -= amount
+                                msg = (
+                                    f'Hi {ctx.author.name}, your bet of '
+                                    f'{amount} shazbucks on {winner} was '
+                                    f'successful. Your new balance is '
+                                    f'{balance} shazbucks.'
+                                )
+                                await send_dm(user_id, msg)
+                                success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='mute', help='Mute or unmute the bot\'s direct messages')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_mute(ctx):
         success = False
         discord_id = ctx.author.id
@@ -531,6 +558,7 @@ def start_bot():
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='win', help='Simulate win result message')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_win(ctx):
         title = "Game 'NA' finished"
         description = '**Winner:** Team jet.Pixel\n**Duration:** 5 Minutes'
@@ -540,6 +568,7 @@ def start_bot():
                        embed=embed_msg)
 
     @bot.command(name='tie', help='Simulate tie result message')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_tie(ctx):
         title = "Game 'NA' finished"
         description = '**Tie game**\n**Duration:** 53 Minutes'
@@ -549,6 +578,7 @@ def start_bot():
                        embed=embed_msg)
 
     @bot.command(name='pick', help='Simulate picked message')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_picked(ctx):
         title = "Game 'NA' teams picked"
         description = ('**Teams**:\n'
@@ -562,6 +592,7 @@ def start_bot():
                        embed=embed_msg)
 
     @bot.command(name='begin', help='Simulate begin message')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_begin(ctx):
         title = "Game 'NA' has begun"
         description = ('**Captains: @jet.Pixel & @eligh_**\n'
@@ -574,17 +605,22 @@ def start_bot():
 
     @bot.event
     async def on_message(message):
-        if (message.author.id == 359925573134319628  # BullyBot
-                # or message.author.id == 292031989773500416  # RedFox
-                or message.author.id == 776567538867503134):  # ShazBuckBot
+        # Print messages to stdout for debugging purposes
+        if (message.author.id == BULLYBOT_DISCORD_ID
+                or message.author.id == DISCORD_ID):
             print(
                 f'{message.author} wrote in #{message.channel} on '
                 f'{message.guild}: {message.content}'
             )
             for embed in message.embeds:
                 print(f'{embed.description}')
-        if (message.author.id == 359925573134319628  # BullyBot
-                or message.author.id == 776567538867503134):  # ShazBuckBot
+        # Parse BullyBot's messages for game info
+        # (and own messages during development)
+        if (
+                (message.author.id == BULLYBOT_DISCORD_ID
+                 or message.author.id == DISCORD_ID)
+                and message.channel.id == PUG_CHANNEL_ID
+        ):
             if 'Game' in message.content:
                 queue = message.content.split("'")[1]
                 description = message.embeds[0].description

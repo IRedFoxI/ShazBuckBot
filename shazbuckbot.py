@@ -186,7 +186,7 @@ def wager_result(conn, wager_id, result) -> None:
     """
     if result not in set(r.value for r in WAGER_RESULT):
         raise ValueError()
-    values = (wager_id, result)
+    values = (result, wager_id)
     sql = ''' UPDATE wagers
                SET result = ?
                WHERE id = ?'''

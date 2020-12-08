@@ -9,6 +9,7 @@ import sqlite3
 
 import discord
 from discord.ext import commands
+from typing import List, Tuple
 
 config = yaml.safe_load(open("config.yml"))
 TOKEN = config['token']
@@ -206,7 +207,7 @@ def create_wager(conn, wager) -> int:
     conn.commit()
     cur = conn.cursor()
     cur.execute("SELECT id FROM users WHERE discord_id = ?", (DISCORD_ID,))
-    bot_user_id = cur.fetchone()[0]
+    bot_user_id: int = cur.fetchone()[0]
     transfer = (wager[0], bot_user_id, wager[3])
     if create_transfer(conn, transfer) == 0:
         return 0
@@ -385,9 +386,9 @@ def start_bot():
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
-            sender_id = data[0]
-            nick = data[1]
-            balance = data[2]
+            sender_id: int = data[0]
+            nick: str = data[1]
+            balance: int = data[2]
             if balance < amount:
                 msg = (f'Hi {nick}, you do not have enough balance to transfer {amount} shazbucks to '
                        f'{receiver.name}! Your current balance is {balance} shazbucks.')
@@ -404,9 +405,9 @@ def start_bot():
                     msg = f'Hi {nick}, {receiver} does not have an account yet!'
                     await send_dm(sender_id, msg)
                 else:
-                    receiver_id = data[0]
-                    receiver_nick = data[1]
-                    receiver_bal = data[2]
+                    receiver_id: int = data[0]
+                    receiver_nick: str = data[1]
+                    receiver_bal: int = data[2]
                     transfer = (sender_id, receiver_id, amount)
                     if create_transfer(conn, transfer) == 0:
                         msg = (f'Hi {nick}, your gift of {amount} shazbucks to {receiver} was somehow '
@@ -439,9 +440,9 @@ def start_bot():
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
-            user_id = data[0]
-            nick = data[1]
-            balance = data[2]
+            user_id: int = data[0]
+            nick: str = data[1]
+            balance: int = data[2]
             if balance < amount:
                 msg = (f'Hi {nick}, you do not have enough balance to bet {amount} shazbucks! Your current '
                        f'balance is {balance} shazbucks.')
@@ -450,7 +451,7 @@ def start_bot():
                 msg = f'Hi {nick}, you cannot bet a negative amount.'
                 await send_dm(user_id, msg)
             else:
-                sql = ''' SELECT id, pick_time, team1, team2 FROM games WHERE status = ? '''
+                sql = ''' SELECT id, team1, team2 FROM games WHERE status = ? '''
                 cursor = conn.cursor()
                 cursor.execute(sql, (GAME_STATUS.InProgress,))
                 games = cursor.fetchall()
@@ -458,7 +459,7 @@ def start_bot():
                     msg = f'Hi {nick}. No games are running. Please wait until teams are picked.'
                     await send_dm(user_id, msg)
                 else:
-                    game_id = games[-1][0]
+                    game_id: int = games[-1][0]
                     prediction = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
                         prediction += GAME_STATUS.Team1
@@ -466,12 +467,12 @@ def start_bot():
                         prediction += GAME_STATUS.Team2
                     else:
                         for game in games:
-                            teams = game[2:4]
+                            teams: Tuple[str, str] = game[1:3]
                             if caseless_equal(winner, teams[0].split(':')[0]):
-                                game_id = game[0]
+                                game_id: int = game[0]
                                 prediction += GAME_STATUS.Team1
                             elif caseless_equal(winner, teams[1].split(':')[0]):
-                                game_id = game[0]
+                                game_id: int = game[0]
                                 prediction += GAME_STATUS.Team2
                     if prediction == 0:
                         msg = (f'Hi {nick}, could not find a game captained by {winner}. Please check the spelling, '
@@ -481,7 +482,7 @@ def start_bot():
                         sql = ''' SELECT prediction FROM wagers WHERE user_id = ? AND game_id = ? '''
                         cursor = conn.cursor()
                         cursor.execute(sql, (user_id, game_id,))
-                        prev_wager = cursor.fetchone()
+                        prev_wager: Tuple[int] = cursor.fetchone()
                         if prev_wager and prediction != prev_wager[0]:
                             msg = f'Hi {nick}, you cannot bet against yourself!'
                             await send_dm(user_id, msg)
@@ -513,8 +514,8 @@ def start_bot():
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
-            user_id = data[0]
-            mute_dm = (get_user_data(conn, user_id, 'mute_dm')[0] + 1) % 2
+            user_id: int = data[0]
+            mute_dm: int = (get_user_data(conn, user_id, 'mute_dm')[0] + 1) % 2
             set_user_data(conn, user_id, ('mute_dm',), (mute_dm,))
             msg = f'Hi {ctx.author.name}, direct messages have been unmuted!'
             await send_dm(user_id, msg)
@@ -605,7 +606,7 @@ def start_bot():
                             print(f'Game picked in {queue} queue, but multiple games with Picking status and '
                                   f'captains {" and ".join(captains)} in that queue! Selecting the last one '
                                   f'and hoping for the best.')
-                        game_id = games[-1][0]
+                        game_id: int = games[-1][0]
                     pick_game(conn, game_id, teams)
                     print(f'Game {game_id} picked in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
                     await message.add_reaction(REACTIONS[True])
@@ -621,7 +622,7 @@ def start_bot():
                         print('PANIC: Game cancelled, but multiple games with Picking status, not sure what game to '
                               'cancel!')
                     else:
-                        game_id = games[0][0]
+                        game_id: int = games[0][0]
                         cancel_game(conn, game_id)
                         print(f'Game {game_id} cancelled, hopefully it was the right one!')
                         success = True
@@ -649,11 +650,11 @@ def start_bot():
                         print(f'PANIC: Game finished in {queue} queue, but no game with InProgress status and '
                               f'correct time in that queue.')
                     else:
-                        game_id = games[0][0]
-                        teams = games[0][2:4]
+                        game_id: int = games[0][0]
+                        teams: Tuple[str, str] = games[0][2:4]
                         captains = [team.split(":")[0] for team in teams]
                         if len(games) > 1:
-                            duration_offsets = [game[1] for game in games]
+                            duration_offsets: List[int] = [game[1] for game in games]
                             _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
                             game_id = games[idx][0]
                             teams = games[idx][2:4]
@@ -678,7 +679,7 @@ def start_bot():
                             wagers = cursor.fetchall()
                             for wager in wagers:
                                 prediction = GAME_STATUS(wager[2]).name
-                                amount = wager[3]
+                                amount: int = wager[3]
                                 if prediction in total_amounts:
                                     total_amounts[prediction] += amount
                                 else:
@@ -692,12 +693,12 @@ def start_bot():
                                 if game_result == GAME_STATUS.Team2:
                                     ratio = (ta_t1 + ta_t2) / ta_t2
                             for wager in wagers:
-                                wager_id = wager[0]
-                                user_id = wager[1]
-                                prediction = wager[2]
-                                amount = wager[3]
-                                nick = wager[4]
-                                discord_id = wager[5]
+                                wager_id: int = wager[0]
+                                user_id: int = wager[1]
+                                prediction: int = wager[2]
+                                amount: int = wager[3]
+                                nick: str = wager[4]
+                                discord_id: int = wager[5]
                                 if game_result == GAME_STATUS.Tied:
                                     transfer = (bot_user_id, user_id, amount)
                                     create_transfer(conn, transfer)

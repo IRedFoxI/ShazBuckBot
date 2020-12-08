@@ -141,6 +141,22 @@ def cancel_game(conn, game_id) -> None:
     conn.commit()
 
 
+def update_teams(conn, game_id, teams) -> None:
+    """Update a game in the games table to InProgress status
+
+    :param sqlite3.Connection conn: The connection to the database
+    :param int game_id: The id of the game to update to InProgress status
+    :param tuple[str,str] teams: The picked teams of the game
+    """
+    values = teams + (game_id,)
+    sql = ''' UPDATE games
+              SET team1 = ?, team2 = ?
+              WHERE id = ? '''
+    cur = conn.cursor()
+    cur.execute(sql, values)
+    conn.commit()
+
+
 def pick_game(conn, game_id, teams) -> None:
     """Update a game in the games table to InProgress status
 
@@ -498,14 +514,14 @@ def start_bot():
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
             user_id = data[0]
-            mute_dm = (get_user_data(conn, user_id, 'mute_dm')[0]+1) % 2
+            mute_dm = (get_user_data(conn, user_id, 'mute_dm')[0] + 1) % 2
             set_user_data(conn, user_id, ('mute_dm',), (mute_dm,))
             msg = f'Hi {ctx.author.name}, direct messages have been unmuted!'
             await send_dm(user_id, msg)
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @bot.command(name='win', help='Simulate win result message')
+    @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_win(ctx):
         title = "Game 'NA' finished"
@@ -513,7 +529,7 @@ def start_bot():
         embed_msg = discord.Embed(description=description, color=0x00ff00)
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
-    @bot.command(name='tie', help='Simulate tie result message')
+    @bot.command(name='tie', help='Simulate tie result message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_tie(ctx):
         title = "Game 'NA' finished"
@@ -521,7 +537,7 @@ def start_bot():
         embed_msg = discord.Embed(description=description, color=0x00ff00)
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
-    @bot.command(name='pick', help='Simulate picked message')
+    @bot.command(name='pick', help='Simulate picked message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_picked(ctx):
         title = "Game 'NA' teams picked"
@@ -533,7 +549,7 @@ def start_bot():
         embed_msg = discord.Embed(description=description, color=0x00ff00)
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
-    @bot.command(name='begin', help='Simulate begin message')
+    @bot.command(name='begin', help='Simulate begin message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_begin(ctx):
         title = "Game 'NA' has begun"
@@ -554,7 +570,8 @@ def start_bot():
                 print(f'{embed.description}')
         # Parse BullyBot's messages for game info
         # (and own messages during development)
-        if ((message.author.id == BULLYBOT_DISCORD_ID or message.author.id == DISCORD_ID)
+        if ((message.author.id == BULLYBOT_DISCORD_ID
+             or message.author.id == DISCORD_ID)  # TODO: Remove this line
                 and message.channel.id == PUG_CHANNEL_ID):
             if 'Game' in message.content:
                 description = message.embeds[0].description
@@ -566,6 +583,7 @@ def start_bot():
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
                     print(f'Game {game_id} created in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
+                    await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
                     queue = message.content.split("'")[1]
                     teams = tuple(description.split('\n')[1:3])
@@ -590,7 +608,9 @@ def start_bot():
                         game_id = games[-1][0]
                     pick_game(conn, game_id, teams)
                     print(f'Game {game_id} picked in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
+                    await message.add_reaction(REACTIONS[True])
                 elif 'cancelled' in message.content:
+                    success = False
                     # Find the game that was just cancelled
                     cursor = conn.cursor()
                     cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GAME_STATUS.InProgress,))
@@ -604,6 +624,8 @@ def start_bot():
                         game_id = games[0][0]
                         cancel_game(conn, game_id)
                         print(f'Game {game_id} cancelled, hopefully it was the right one!')
+                        success = True
+                    await message.add_reaction(REACTIONS[success])
                 elif 'finished' in message.content:
                     queue = message.content.split("'")[1]
                     [result, duration] = description.split('\n')
@@ -726,6 +748,99 @@ def start_bot():
                             result_msg = f'{winners_msg}{verb} paid out a total of {payout} shazbucks.'
                     if result_msg:
                         await message.channel.send(result_msg)
+            elif 'has replaced' and 'as captain' in message.content:
+                success = False
+                capt_str = message.content.replace(' as captain', '').replace('`', '')
+                new_capt, old_capt = capt_str.split(' has replaced ')
+                sql = ''' SELECT id, team1, team2 FROM games 
+                          WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
+                cursor = conn.cursor()
+                cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress, old_capt + '%', old_capt + '%'))
+                games = cursor.fetchall()
+                if not games:
+                    print('PANIC: Captain replaced, but no game with that captain and Picking or InProgress '
+                          'status, not sure what game to replace a captain!')
+                else:
+                    if len(games) > 1:
+                        print('PANIC: Captain replaced, but multiple games with that captain and Picking or '
+                              'InProgress status, not sure what game to replace a captain! Replacing captain in'
+                              'the last game and hoping for the best')
+                    game_id: int = games[-1][0]
+                    team1: str = games[-1][1]
+                    team2: str = games[-1][2]
+                    if team1.startswith(old_capt):
+                        teams = (team1.replace(old_capt, new_capt), team2)
+                        update_teams(conn, game_id, teams)
+                        success = True
+                    elif team2.startswith(old_capt):
+                        teams = (team1, team2.replace(old_capt, new_capt))
+                        update_teams(conn, game_id, teams)
+                        success = True
+                await message.add_reaction(REACTIONS[success])
+            elif 'has been substituted with' in message.content:
+                success = False
+                subs_str = message.content.replace(' has been substituted with', '').replace('`', '')
+                old_player, new_player = subs_str.split()
+                search_str = '%' + old_player + '%'
+                sql = ''' SELECT id, team1, team2 FROM games 
+                          WHERE status = ? AND (team1 LIKE ? OR team2 LIKE ?)'''
+                cursor = conn.cursor()
+                cursor.execute(sql, (GAME_STATUS.InProgress, search_str, search_str))  # Don't care about picking
+                games = cursor.fetchall()
+                if not games:
+                    print('PANIC: Player substituted, but no game with that player and InProgress '
+                          'status, not sure what game to substitute the player!')
+                else:
+                    if len(games) > 1:
+                        print('PANIC: Player substituted, but multiple games with that player and InProgress '
+                              'status, not sure what game to substitute the player! Substituting the player '
+                              'in the last game and hoping for the best')
+                    game_id: int = games[-1][0]
+                    team1: str = games[-1][1]
+                    team2: str = games[-1][2]
+                    if old_player in team1:
+                        teams = (team1.replace(old_player, new_player), team2)
+                        update_teams(conn, game_id, teams)
+                        success = True
+                    elif old_player in team2:
+                        teams = (team1, team2.replace(old_player, new_player))
+                        update_teams(conn, game_id, teams)
+                        success = True
+                await message.add_reaction(REACTIONS[success])
+            elif 'has been swapped with' in message.content:
+                success = False
+                swap_str = message.content.replace(' has been swapped with', '').replace('`', '')
+                player1, player2 = swap_str.split()
+                search_str1 = '%' + player1 + '%'
+                search_str2 = '%' + player2 + '%'
+                values = (GAME_STATUS.InProgress, search_str1, search_str2, search_str2, search_str1)
+                sql = ''' SELECT id, team1, team2 FROM games 
+                          WHERE status = ? AND 
+                          ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?))'''
+                cursor = conn.cursor()
+                cursor.execute(sql, values)  # Don't care about picking
+                games = cursor.fetchall()
+                if not games:
+                    print('PANIC: Players swapped, but no game with those players and InProgress '
+                          'status, not sure what game to swap the players!')
+                else:
+                    if len(games) > 1:
+                        print('PANIC: Players swapped, but multiple games with those players and InProgress '
+                              'status, not sure what game to swap the players! Swapping the players '
+                              'in the last game and hoping for the best')
+                    game_id: int = games[-1][0]
+                    team1: str = games[-1][1]
+                    team2: str = games[-1][2]
+                    if player1 in team1 and player2 in team2:
+                        team1 = team1.replace(player1, player2)
+                        team2 = team2.replace(player2, player1)
+                    elif player2 in team1 and player1 in team2:
+                        team1 = team1.replace(player2, player1)
+                        team2 = team2.replace(player1, player2)
+                    teams = (team1, team2)
+                    update_teams(conn, game_id, teams)
+                    success = True
+                await message.add_reaction(REACTIONS[success])
         await bot.process_commands(message)
 
     @bot.event

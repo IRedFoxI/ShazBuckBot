@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """A discord bot to bet on PUGs."""
 
 import asyncio

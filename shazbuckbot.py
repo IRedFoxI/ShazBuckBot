@@ -453,7 +453,8 @@ def start_bot():
                 msg = f'Hi {nick}, you cannot bet a negative amount.'
                 await send_dm(user_id, msg)
             else:
-                sql = ''' SELECT id, team1, team2 FROM games WHERE status = ? '''
+                sql = ''' SELECT id, team1, team2, CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER) 
+                          FROM games WHERE status = ? '''
                 cursor = conn.cursor()
                 cursor.execute(sql, (GAME_STATUS.InProgress,))
                 games = cursor.fetchall()
@@ -463,6 +464,7 @@ def start_bot():
                 else:
                     game_id: int = games[-1][0]
                     prediction = 0
+                    time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
                         prediction += GAME_STATUS.Team1
                     elif winner == "2" or caseless_equal(winner, "Blue"):
@@ -473,12 +475,18 @@ def start_bot():
                             if caseless_equal(winner, teams[0].split(':')[0]):
                                 game_id: int = game[0]
                                 prediction += GAME_STATUS.Team1
+                                time_since_pick = game[3]
                             elif caseless_equal(winner, teams[1].split(':')[0]):
                                 game_id: int = game[0]
                                 prediction += GAME_STATUS.Team2
+                                time_since_pick = game[3]
                     if prediction == 0:
                         msg = (f'Hi {nick}, could not find a game captained by {winner}. Please check the spelling, '
                                f'use 1, 2, Red or Blue, or wait until the teams have been picked.')
+                        await send_dm(user_id, msg)
+                    elif time_since_pick > BET_WINDOW:
+                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} minutes ago. ' 
+                               f'Bets have to be made within {BET_WINDOW} minutes after picking is complete')
                         await send_dm(user_id, msg)
                     else:
                         sql = ''' SELECT prediction FROM wagers WHERE user_id = ? AND game_id = ? '''

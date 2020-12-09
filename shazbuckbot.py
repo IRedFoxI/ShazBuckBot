@@ -376,6 +376,7 @@ def start_bot():
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='gift', help='Gift shazbucks to a discord user')
+    @in_channel(BOT_CHANNEL_ID)
     async def cmd_gift(ctx, receiver: discord.Member, amount: int):
         success = False
         discord_id = ctx.author.id

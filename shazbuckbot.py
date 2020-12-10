@@ -312,9 +312,10 @@ def start_bot():
         (discord_id, mute_dm) = get_user_data(conn, user_id, 'discord_id, mute_dm')
         if not mute_dm:
             user = bot.get_user(discord_id)
-            await asyncio.sleep(DM_TIME_TO_WAIT)
-            await user.create_dm()
-            await user.dm_channel.send(message)
+            if user:
+                await asyncio.sleep(DM_TIME_TO_WAIT)
+                await user.create_dm()
+                await user.dm_channel.send(message)
 
     @bot.event
     async def on_ready():

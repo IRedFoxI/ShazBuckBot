@@ -216,6 +216,28 @@ def create_wager(conn, wager) -> int:
         return cur.lastrowid
 
 
+def change_wager(conn, wager_id, amount_change) -> None:
+    """Change the wager amount
+
+    :param sqlite3.Connection conn: The connection to the database
+    :param int wager_id: The id of the user whose balance needs updating
+    :param int amount_change: The amount the balance needs to change
+    """
+    values = (amount_change, wager_id)
+    sql = ''' UPDATE wagers SET amount = amount + ? WHERE id = ? '''
+    cur = conn.cursor()
+    cur.execute(sql, values)
+    conn.commit()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM wagers WHERE id = ?", (wager_id,))
+    user_id: int = cur.fetchone()[0]
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users WHERE discord_id = ?", (DISCORD_ID,))
+    bot_user_id: int = cur.fetchone()[0]
+    transfer = (user_id, bot_user_id, amount_change)
+    create_transfer(conn, transfer)
+
+
 def wager_result(conn, wager_id, result) -> None:
     """Update the result of a wager
 
@@ -496,13 +518,20 @@ def start_bot():
                                f'Bets have to be made within {BET_WINDOW} minutes after picking is complete')
                         await send_dm(user_id, msg)
                     else:
-                        sql = ''' SELECT prediction FROM wagers WHERE user_id = ? AND game_id = ? '''
+                        sql = ''' SELECT id, prediction FROM wagers WHERE user_id = ? AND game_id = ? '''
                         cursor = conn.cursor()
                         cursor.execute(sql, (user_id, game_id,))
                         prev_wager: Tuple[int] = cursor.fetchone()
-                        if prev_wager and prediction != prev_wager[0]:
+                        if prev_wager and prediction != prev_wager[1]:
                             msg = f'Hi {nick}, you cannot bet against yourself!'
                             await send_dm(user_id, msg)
+                        elif prev_wager and prediction == prev_wager[1]:
+                            change_wager(conn, prev_wager[0], amount)
+                            balance -= amount
+                            msg = (f'Hi {ctx.author.name}, your additional bet of {amount} shazbucks on {winner} was '
+                                   f'successful. Your new balance is {balance} shazbucks.')
+                            await send_dm(user_id, msg)
+                            success = True
                         else:
                             wager = (user_id, game_id, prediction, amount)
                             if create_wager(conn, wager) == 0:

@@ -582,6 +582,7 @@ def start_bot():
 
     @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
+    @commands.has_role('Developer')
     async def cmd_win(ctx):
         title = "Game 'NA' finished"
         description = '**Winner:** Team jet.Pixel\n**Duration:** 5 Minutes'
@@ -590,6 +591,7 @@ def start_bot():
 
     @bot.command(name='tie', help='Simulate tie result message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
+    @commands.has_role('Developer')
     async def cmd_tie(ctx):
         title = "Game 'NA' finished"
         description = '**Tie game**\n**Duration:** 53 Minutes'
@@ -597,6 +599,7 @@ def start_bot():
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
     @bot.command(name='pick', help='Simulate picked message')  # TODO: Remove this command
+    @commands.has_role('Developer')
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_picked(ctx):
         title = "Game 'NA' teams picked"
@@ -609,6 +612,7 @@ def start_bot():
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
     @bot.command(name='begin', help='Simulate begin message')  # TODO: Remove this command
+    @commands.has_role('Developer')
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_begin(ctx):
         title = "Game 'NA' has begun"

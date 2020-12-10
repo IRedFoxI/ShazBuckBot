@@ -453,7 +453,8 @@ def start_bot():
                 msg = f'Hi {nick}, you cannot bet a negative amount.'
                 await send_dm(user_id, msg)
             else:
-                sql = ''' SELECT id, team1, team2, CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER) 
+                sql = ''' SELECT id, team1, team2, 
+                          CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER) 
                           FROM games WHERE status = ? '''
                 cursor = conn.cursor()
                 cursor.execute(sql, (GAME_STATUS.InProgress,))
@@ -632,7 +633,8 @@ def start_bot():
              or message.author.id == DISCORD_ID)  # TODO: Remove this line
                 and message.channel.id == PUG_CHANNEL_ID):
             if 'Game' in message.content:
-                description = message.embeds[0].description
+                if message.embeds:
+                    description = message.embeds[0].description
                 if 'begun' in message.content:
                     queue = message.content.split("'")[1]
                     capt_str = description.split('\n')[0]

@@ -469,8 +469,10 @@ def start_bot():
                     time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
                         prediction += GAME_STATUS.Team1
+                        time_since_pick = games[-1][3]
                     elif winner == "2" or caseless_equal(winner, "Blue"):
                         prediction += GAME_STATUS.Team2
+                        time_since_pick = games[-1][3]
                     else:
                         for game in games:
                             teams: Tuple[str, str] = game[1:3]
@@ -712,6 +714,7 @@ def start_bot():
                     game_result = None
                     total_amounts = {}
                     no_winners = 0
+                    payout = 0
                     winners_msg = f''
                     # Find the game that just finished
                     game_values = (queue, GAME_STATUS.InProgress, duration, DURATION_TOLERANCE)
@@ -792,7 +795,8 @@ def start_bot():
                                            f'returned to you.')
                                     await send_dm(user_id, msg)
                                 elif prediction == game_result:
-                                    win_amount = amount * ratio
+                                    win_amount = round(amount * ratio)
+                                    payout += win_amount
                                     transfer = (bot_user_id, user_id, win_amount)
                                     create_transfer(conn, transfer)
                                     wager_result(conn, wager_id, WAGER_RESULT.Won)
@@ -819,9 +823,6 @@ def start_bot():
                         if len(total_amounts) == 1:
                             result_msg = 'The game only had bets on one team. All wagers have been returned.'
                         if len(total_amounts) == 2:
-                            payout = 0
-                            for value in total_amounts.values():
-                                payout += value
                             verb = "was" if no_winners == 1 else "were"
                             result_msg = f'{winners_msg}{verb} paid out a total of {payout} shazbucks.'
                     if result_msg:

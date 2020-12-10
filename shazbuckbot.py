@@ -118,7 +118,7 @@ def create_game(conn, game) -> int:
     """Create a new game into the games table
 
     :param sqlite3.Connection conn:
-    :param tuple[str,float,str,str,int] game: Tuple with the details of the game
+    :param tuple[str,str,str] game: Tuple with the details of the game
     :return: The id of the created game
     """
     game += (GAME_STATUS.Picking,)
@@ -325,6 +325,7 @@ def start_bot():
     def in_channel(channel_id):
         def predicate(ctx):
             return ctx.message.channel.id == channel_id
+
         return commands.check(predicate)
 
     @bot.command(name='hello', help='Create account')
@@ -486,7 +487,7 @@ def start_bot():
                                f'use 1, 2, Red or Blue, or wait until the teams have been picked.')
                         await send_dm(user_id, msg)
                     elif time_since_pick > BET_WINDOW:
-                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} minutes ago. ' 
+                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} minutes ago. '
                                f'Bets have to be made within {BET_WINDOW} minutes after picking is complete')
                         await send_dm(user_id, msg)
                     else:
@@ -572,13 +573,25 @@ def start_bot():
                             prediction = GAME_STATUS(wager[0])
                             amount: int = wager[1]
                             total_amounts[prediction] += amount
-                        show_str += (f'Game {game_id} ({BET_WINDOW-run_time} minutes left to bet): '
+                        show_str += (f'Game {game_id} ({BET_WINDOW - run_time} minutes left to bet): '
                                      f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
                                      f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
                 if show_str:
                     await ctx.send(show_str)
                     success = True
         await ctx.message.add_reaction(REACTIONS[success])
+
+    @bot.command(name='quit', help='Shutdown bot')
+    @in_channel(BOT_CHANNEL_ID)
+    @commands.has_role('Developer')
+    async def cmd_quit(ctx):
+        success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+        await ctx.bot.logout()
+        try:
+            quit()
+        except SystemExit:
+            pass
 
     @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
@@ -637,20 +650,21 @@ def start_bot():
              or message.author.id == DISCORD_ID)  # TODO: Remove this line
                 and message.channel.id == PUG_CHANNEL_ID):
             if 'Game' in message.content:
+                description = ''
                 if message.embeds:
                     description = message.embeds[0].description
                 if 'begun' in message.content:
                     queue = message.content.split("'")[1]
                     capt_str = description.split('\n')[0]
                     capt_str = capt_str.replace('**', '').replace('Captains:', '').replace('&', '').replace('@', '')
-                    teams = tuple(capt_str.split())
+                    teams: Tuple[str, ...] = tuple(capt_str.split())
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
                     print(f'Game {game_id} created in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
                     queue = message.content.split("'")[1]
-                    teams = tuple(description.split('\n')[1:3])
+                    teams: Tuple[str, ...] = tuple(description.split('\n')[1:3])
                     captains = tuple([team.split(':')[0] for team in teams])
                     # Find the game that was just picked
                     game_values = (queue, GAME_STATUS.Picking) + captains

@@ -532,6 +532,53 @@ def start_bot():
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
+    @bot.command(name='show', help='Show current open bets')
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_show(ctx):
+        success = False
+        discord_id = ctx.author.id
+        cursor = conn.cursor()
+        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
+        data = cursor.fetchone()
+        if data is None:
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
+        else:
+            user_id: int = data[0]
+            nick: str = data[1]
+            sql = ''' SELECT id, team1, team2, 
+                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER) 
+                      FROM games WHERE status = ? '''
+            cursor = conn.cursor()
+            cursor.execute(sql, (GAME_STATUS.InProgress,))
+            games = cursor.fetchall()
+            if not games:
+                msg = f'Hi {nick}. No games are running. Please wait until teams are picked.'
+                await send_dm(user_id, msg)
+            else:
+                show_str = ''
+                for game in games:
+                    game_id = game[0]
+                    teams = game[1:3]
+                    captains = [team.split(':')[0] for team in teams]
+                    run_time = game[3]
+                    if run_time < BET_WINDOW:
+                        cursor = conn.cursor()
+                        cursor.execute(''' SELECT prediction, amount FROM wagers WHERE game_id = ? ''', (game_id,))
+                        wagers = cursor.fetchall()
+                        total_amounts = {GAME_STATUS.Team1: 0, GAME_STATUS.Team2: 0}
+                        for wager in wagers:
+                            prediction = GAME_STATUS(wager[0])
+                            amount: int = wager[1]
+                            total_amounts[prediction] += amount
+                        show_str += (f'Game {game_id} ({BET_WINDOW-run_time} minutes left to bet): '
+                                     f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
+                                     f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
+                if show_str:
+                    await ctx.send(show_str)
+                    success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
     @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_win(ctx):

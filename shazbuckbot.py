@@ -470,9 +470,11 @@ def start_bot():
                     time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
                         prediction += GAME_STATUS.Team1
+                        winner = games[-1][1].split(':')[0]
                         time_since_pick = games[-1][3]
                     elif winner == "2" or caseless_equal(winner, "Blue"):
                         prediction += GAME_STATUS.Team2
+                        winner = games[-1][2].split(':')[0]
                         time_since_pick = games[-1][3]
                     else:
                         for game in games:

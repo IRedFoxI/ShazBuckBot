@@ -450,8 +450,8 @@ def start_bot():
                 msg = (f'Hi {nick}, you do not have enough balance to bet {amount} shazbucks! Your current '
                        f'balance is {balance} shazbucks.')
                 await send_dm(user_id, msg)
-            elif amount < 0:
-                msg = f'Hi {nick}, you cannot bet a negative amount.'
+            elif amount <= 0:
+                msg = f'Hi {nick}, you cannot bet a negative or zero amount.'
                 await send_dm(user_id, msg)
             else:
                 sql = ''' SELECT id, team1, team2, 

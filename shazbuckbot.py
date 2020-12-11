@@ -957,10 +957,8 @@ def start_bot():
     @bot.event
     async def on_command_error(ctx, error):
         if isinstance(error, commands.errors.CommandNotFound):
-            await ctx.author.create_dm()
-            await ctx.author.dm_channel.send(
-                f'Hi {ctx.author.name}. {error}!'
-            )
+            print(ctx.author.name)
+            print(error)
 
     bot.run(TOKEN)
 

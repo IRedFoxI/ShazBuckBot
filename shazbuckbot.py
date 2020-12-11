@@ -351,7 +351,7 @@ def start_bot():
 
         return commands.check(predicate)
 
-    @bot.command(name='hello', help='Create account')
+    @bot.command(name='shazbucks', help='Create an account and get free shazbucks')
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_hello(ctx):
         success = False
@@ -374,7 +374,13 @@ def start_bot():
             else:
                 msg = (
                     f'Hi {ctx.author.name}, welcome! You have received an initial balance of {INIT_BAL} '
-                    f'shazbucks, bet wisely!'
+                    f'shazbucks, bet wisely! These are the basic commands:\n'
+                    f'- !balance - to check your balance\n'
+                    f'- !show - to show games that are currently open for betting\n'
+                    f'- !mute - to mute the bot\'s DMs\n'
+                    f'- !bet <captain> <amount> - to bet <amount> on the team captained by <captain>\n'
+                    f'Instead of <captain> you can also use 1,2, Red or Blue to select a team '
+                    f'from the last picked game'
                 )
                 await send_dm(user_id, msg)
                 success = True

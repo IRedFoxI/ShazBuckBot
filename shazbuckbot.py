@@ -604,16 +604,20 @@ def start_bot():
                     teams = game[1:3]
                     captains = [team.split(':')[0] for team in teams]
                     run_time = game[3]
+                    cursor = conn.cursor()
+                    cursor.execute(''' SELECT prediction, amount FROM wagers WHERE game_id = ? ''', (game_id,))
+                    wagers = cursor.fetchall()
+                    total_amounts = {GAME_STATUS.Team1: 0, GAME_STATUS.Team2: 0}
+                    for wager in wagers:
+                        prediction = GAME_STATUS(wager[0])
+                        amount: int = wager[1]
+                        total_amounts[prediction] += amount
                     if run_time < BET_WINDOW:
-                        cursor = conn.cursor()
-                        cursor.execute(''' SELECT prediction, amount FROM wagers WHERE game_id = ? ''', (game_id,))
-                        wagers = cursor.fetchall()
-                        total_amounts = {GAME_STATUS.Team1: 0, GAME_STATUS.Team2: 0}
-                        for wager in wagers:
-                            prediction = GAME_STATUS(wager[0])
-                            amount: int = wager[1]
-                            total_amounts[prediction] += amount
                         show_str += (f'Game {game_id} ({BET_WINDOW - run_time} minutes left to bet): '
+                                     f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
+                                     f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
+                    else:
+                        show_str += (f'Game {game_id} (Betting closed): '
                                      f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
                                      f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
                 if show_str:

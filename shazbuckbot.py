@@ -612,7 +612,7 @@ def start_bot():
                         prediction = GAME_STATUS(wager[0])
                         amount: int = wager[1]
                         total_amounts[prediction] += amount
-                    if run_time < BET_WINDOW:
+                    if run_time <= BET_WINDOW:
                         show_str += (f'Game {game_id} ({BET_WINDOW - run_time} minutes left to bet): '
                                      f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
                                      f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')

@@ -900,8 +900,7 @@ def start_bot():
                         await message.channel.send(result_msg)
             elif 'has replaced' and 'as captain' in message.content:
                 success = False
-                capt_str = message.content.replace(' as captain', '').replace('`', '')
-                new_capt, old_capt = capt_str.split(' has replaced ')
+                new_capt, old_capt = message.content.replace('`', '').replace(' as captain', '').split(' has replaced ')
                 sql = ''' SELECT id, team1, team2 FROM games 
                           WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
                 cursor = conn.cursor()
@@ -929,8 +928,7 @@ def start_bot():
                 await message.add_reaction(REACTIONS[success])
             elif 'has been substituted with' in message.content:
                 success = False
-                subs_str = message.content.replace(' has been substituted with', '').replace('`', '')
-                old_player, new_player = subs_str.split()
+                old_player, new_player = message.content.replace('`', '').split(' has been substituted with')
                 search_str = '%' + old_player + '%'
                 sql = ''' SELECT id, team1, team2 FROM games 
                           WHERE status = ? AND (team1 LIKE ? OR team2 LIKE ?)'''
@@ -961,8 +959,7 @@ def start_bot():
                 await message.add_reaction(REACTIONS[success])
             elif 'has been swapped with' in message.content:
                 success = False
-                swap_str = message.content.replace(' has been swapped with', '').replace('`', '')
-                player1, player2 = swap_str.split()
+                player1, player2 = message.content.replace('`', '').split(' has been swapped with')
                 search_str1 = '%' + player1 + '%'
                 search_str2 = '%' + player2 + '%'
                 values = (GAME_STATUS.InProgress, search_str1, search_str2, search_str2, search_str1)

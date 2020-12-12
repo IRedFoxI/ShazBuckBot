@@ -3,6 +3,7 @@
 
 import asyncio
 import atexit
+import re
 import unicodedata
 from enum import IntEnum
 import yaml
@@ -724,8 +725,11 @@ def start_bot():
                 if 'begun' in message.content:
                     queue = message.content.split("'")[1]
                     capt_str = description.split('\n')[0]
-                    capt_str = capt_str.replace('**', '').replace('Captains:', '').replace('&', '').replace('@', '')
-                    teams: Tuple[str, ...] = tuple(capt_str.split())
+                    capt_str = capt_str.replace('**', '').replace('Captains:', '').replace('&', '')
+                    pattern = '[<@!>]'
+                    capt_ids = re.sub(pattern, '', capt_str).split()
+                    capt_ids = [int(i) for i in capt_ids]
+                    teams = tuple([bot.get_user(capt_id).display_name for capt_id in capt_ids])
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
                     print(f'Game {game_id} created in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')

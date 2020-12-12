@@ -339,6 +339,31 @@ def start_bot():
                 await user.create_dm()
                 await user.dm_channel.send(message)
 
+    async def cancel_wagers(game_id, reason) -> None:
+        """Cancel wagers and return the bet to the users
+
+        :param int game_id: The id of game which bets should be canceled
+        :param str reason: The reason of the cancellation to send to the users in a DM
+        """
+        sql = ''' SELECT wagers.id, user_id, amount, nick, team1, team2 FROM wagers, users, games 
+                  WHERE game_id = ? AND users.id = user_id AND games.id = ? AND result = ?'''
+        cursor = conn.cursor()
+        cursor.execute(sql, (game_id, game_id, WAGER_RESULT.InProgress))
+        wagers = cursor.fetchall()
+        for wager in wagers:
+            wager_id: int = wager[0]
+            user_id: int = wager[1]
+            amount: int = wager[2]
+            nick: str = wager[3]
+            teams: Tuple[str, str] = wager[4:6]
+            captains = [team.split(':')[0] for team in teams]
+            transfer = (bot_user_id, user_id, amount)
+            create_transfer(conn, transfer)
+            wager_result(conn, wager_id, WAGER_RESULT.Canceled)
+            msg = (f'Hi {nick}. Your bet on the game captained by {" and ".join(captains)} was canceled '
+                   f'due to {reason}. Your bet of {amount} shazbucks has been returned to you.')
+            await send_dm(user_id, msg)
+
     @bot.event
     async def on_ready():
         print(f'{bot.user} is connected to the following guild(s):')
@@ -348,7 +373,6 @@ def start_bot():
     def in_channel(channel_id):
         def predicate(ctx):
             return ctx.message.channel.id == channel_id
-
         return commands.check(predicate)
 
     @bot.command(name='shazbucks', help='Create an account and get free shazbucks')
@@ -922,10 +946,12 @@ def start_bot():
                     if old_player in team1:
                         teams = (team1.replace(old_player, new_player), team2)
                         update_teams(conn, game_id, teams)
+                        await cancel_wagers(game_id, 'a player substitution')
                         success = True
                     elif old_player in team2:
                         teams = (team1, team2.replace(old_player, new_player))
                         update_teams(conn, game_id, teams)
+                        await cancel_wagers(game_id, 'a player substitution')
                         success = True
                 await message.add_reaction(REACTIONS[success])
             elif 'has been swapped with' in message.content:
@@ -960,6 +986,7 @@ def start_bot():
                         team2 = team2.replace(player1, player2)
                     teams = (team1, team2)
                     update_teams(conn, game_id, teams)
+                    await cancel_wagers(game_id, 'a player swap')
                     success = True
                 await message.add_reaction(REACTIONS[success])
         await bot.process_commands(message)

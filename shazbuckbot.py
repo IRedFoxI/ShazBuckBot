@@ -729,7 +729,13 @@ def start_bot():
                     pattern = '[<@!>]'
                     capt_ids = re.sub(pattern, '', capt_str).split()
                     capt_ids = [int(i) for i in capt_ids]
-                    teams = tuple([bot.get_user(capt_id).display_name for capt_id in capt_ids])
+                    teams = ()
+                    for capt_id in capt_ids:
+                        user = bot.get_user(capt_id)
+                        if user:
+                            teams += (user.name,)
+                        else:
+                            teams += (str(capt_id),)
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
                     print(f'Game {game_id} created in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
@@ -739,8 +745,9 @@ def start_bot():
                     teams: Tuple[str, ...] = tuple(description.split('\n')[1:3])
                     captains = tuple([team.split(':')[0] for team in teams])
                     # Find the game that was just picked
-                    game_values = (queue, GAME_STATUS.Picking) + captains
-                    sql = ''' SELECT id FROM games WHERE queue = ? AND status = ? AND team1 = ? AND team2 = ? '''
+                    game_values = (queue, GAME_STATUS.Picking) + captains + (captains[1], captains[0])
+                    sql = ''' SELECT id FROM games WHERE queue = ? AND status = ? 
+                              AND ((team1 = ? AND team2 = ?) OR (team1 = ? AND team2 = ?)) '''
                     cursor = conn.cursor()
                     cursor.execute(sql, game_values)
                     games = cursor.fetchall()
@@ -875,7 +882,8 @@ def start_bot():
                                            f'{" and ".join(captains)}. You have won {win_amount} shazbucks.')
                                     await send_dm(user_id, msg)
                                     user = bot.get_user(discord_id)
-                                    winners_msg += f'{user.mention}({win_amount}) '  # Use either user.mention or nick
+                                    username = user.mention if user else nick
+                                    winners_msg += f'{username}({win_amount}) '
                                     no_winners += 1
                                 else:
                                     wager_result(conn, wager_id, WAGER_RESULT.Lost)

@@ -792,11 +792,11 @@ def start_bot():
                     cursor = conn.cursor()
                     cursor.execute(sql, game_values)
                     games = cursor.fetchall()
+                    game_id: int = games[0][0]
                     if not games:
                         print(f'PANIC: Game finished in {queue} queue, but no game with InProgress status and '
                               f'correct time in that queue.')
                     else:
-                        game_id: int = games[0][0]
                         teams: Tuple[str, str] = games[0][2:4]
                         captains = [team.split(":")[0] for team in teams]
                         if len(games) > 1:
@@ -804,6 +804,7 @@ def start_bot():
                             _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
                             game_id = games[idx][0]
                             teams = games[idx][2:4]
+                            captains = [team.split(":")[0] for team in teams]
                         game_result = 0
                         if 'Tie' in result:
                             game_result += GAME_STATUS.Tied
@@ -875,7 +876,7 @@ def start_bot():
                                 else:
                                     wager_result(conn, wager_id, WAGER_RESULT.Lost)
                                     msg = (f'Hi {nick}. You lost your bet on the game captained by '
-                                           f'{" and ".join(captains)}. You have lost {amount} shazbucks.')
+                                           f'{" and ".join(captains)}. You have lost your {amount} shazbucks.')
                                     await send_dm(user_id, msg)
                     if game_result is None:
                         result_msg = '\'ERROR: Game not found\''
@@ -890,7 +891,7 @@ def start_bot():
                             result_msg = 'The game only had bets on one team. All wagers have been returned.'
                         if len(total_amounts) == 2:
                             verb = "was" if no_winners == 1 else "were"
-                            result_msg = f'{winners_msg}{verb} paid out a total of {payout} shazbucks.'
+                            result_msg = f'Game {game_id}: {winners_msg}{verb} paid out a total of {payout} shazbucks.'
                     if result_msg:
                         await message.channel.send(result_msg)
             elif 'has replaced' and 'as captain' in message.content:

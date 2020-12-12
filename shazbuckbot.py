@@ -662,6 +662,222 @@ def start_bot():
         except SystemExit:
             pass
 
+    @bot.command(name='change_game', help='Change the outcome of a game')
+    @commands.has_role('Developer')
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_change_game(ctx, game_id: int, result: str):
+        success = False
+        discord_id = ctx.author.id
+        cursor = conn.cursor()
+        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
+        data = cursor.fetchone()
+        if data is None:
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
+        else:
+            user_id: int = data[0]
+            nick: str = data[1]
+            sql = ''' SELECT team1, team2, status FROM games 
+                      WHERE id = ? AND (status = ? OR status = ? OR status = ? OR status = ? OR status = ?) '''
+            values = (game_id, GAME_STATUS.InProgress, GAME_STATUS.Cancelled, GAME_STATUS.Team1,
+                      GAME_STATUS.Team2, GAME_STATUS.Tied)
+            cursor = conn.cursor()
+            cursor.execute(sql, values)
+            games = cursor.fetchone()
+            if not games:
+                msg = (f'Hi {nick}. The game with id {game_id} does not exist or it\'s status is not '
+                       f'InProgress, Team1, Team2, Tied or Cancelled.')
+                await send_dm(user_id, msg)
+            else:
+                teams: Tuple[str, str] = games[0:2]
+                captains = [team.split(':')[0] for team in teams]
+                old_status = games[2]
+                new_status = None
+                if result in ['1', 'Red', 'red', 'Team1', 'team1', captains[0]]:
+                    new_status = GAME_STATUS.Team1
+                elif result in ['2', 'Blue', 'blue', 'Team2', 'team2', captains[1]]:
+                    new_status = GAME_STATUS.Team2
+                elif result in ['3', 'Tie', 'tie', 'Tied', 'tied']:
+                    new_status = GAME_STATUS.Tied
+                elif result in ['4', 'Cancel', 'cancel', 'Canceled', 'canceled', 'Cancelled', 'cancelled']:
+                    new_status = GAME_STATUS.Cancelled
+                else:
+                    msg = (f'Hi {nick}. Result not understood. You can use 1, 2, Red or Blue or the captain\'s name '
+                           f'to select the winning team. Or use 3/Tie/Tied to tie or '
+                           f'4/Cancel/Canceled/Cancelled to cancel the game.')
+                    await send_dm(user_id, msg)
+                if new_status:
+                    if new_status == old_status:
+                        msg = (
+                            f'Hi {nick}. The game with id {game_id} was already set to {new_status.name}.')
+                        await send_dm(user_id, msg)
+                    else:
+                        result_msg = ''
+                        total_amounts = {}
+                        no_winners = 0
+                        payout = 0
+                        winners_msg = f''
+                        sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id 
+                                                              FROM users, wagers 
+                                                              WHERE game_id = ? AND users.id = wagers.user_id '''
+                        cursor = conn.cursor()
+                        cursor.execute(sql, (game_id,))
+                        wagers = cursor.fetchall()
+                        for wager in wagers:
+                            prediction = GAME_STATUS(wager[2]).name
+                            amount: int = wager[3]
+                            if prediction in total_amounts:
+                                total_amounts[prediction] += amount
+                            else:
+                                total_amounts[prediction] = amount
+                        if old_status != GAME_STATUS.InProgress:
+                            ratio = 0
+                            if GAME_STATUS.Team1.name in total_amounts and GAME_STATUS.Team2.name in total_amounts:
+                                ta_t1 = total_amounts[GAME_STATUS.Team1.name]
+                                ta_t2 = total_amounts[GAME_STATUS.Team2.name]
+                                if old_status == GAME_STATUS.Team1:
+                                    ratio = (ta_t1 + ta_t2) / ta_t1
+                                if old_status == GAME_STATUS.Team2:
+                                    ratio = (ta_t1 + ta_t2) / ta_t2
+                            # Claw back previous payout
+                            finish_game(conn, game_id, GAME_STATUS.InProgress)
+                            for wager in wagers:
+                                wager_id: int = wager[0]
+                                user_id: int = wager[1]
+                                prediction: int = wager[2]
+                                amount: int = wager[3]
+                                nick: str = wager[4]
+                                discord_id: int = wager[5]
+                                if old_status == GAME_STATUS.Tied:
+                                    transfer = (user_id, bot_user_id, amount)
+                                    create_transfer(conn, transfer)
+                                    wager_result(conn, wager_id, WAGER_RESULT.InProgress)
+                                    msg = (f'Hi {nick}. The result of game {game_id}, captained by '
+                                           f'{" and ".join(captains)}, was changed. Your bet of {amount} shazbucks '
+                                           f'has been placed again.')
+                                    await send_dm(user_id, msg)
+                                elif ratio == 0:
+                                    transfer = (user_id, bot_user_id, amount)
+                                    create_transfer(conn, transfer)
+                                    wager_result(conn, wager_id, WAGER_RESULT.InProgress)
+                                    msg = (f'Hi {nick}. The result of game {game_id}, captained by '
+                                           f'{" and ".join(captains)}, was changed. Your bet of {amount} shazbucks '
+                                           f'has been placed again.')
+                                    await send_dm(user_id, msg)
+                                elif prediction == old_status:
+                                    win_amount = round(amount * ratio)
+                                    payout += win_amount
+                                    transfer = (user_id, bot_user_id, win_amount)
+                                    create_transfer(conn, transfer)
+                                    wager_result(conn, wager_id, WAGER_RESULT.InProgress)
+                                    msg = (f'Hi {nick}. The result of game {game_id}, captained by '
+                                           f'{" and ".join(captains)}, was changed. Your previous payout of '
+                                           f'{win_amount} shazbucks has been clawed back.')
+                                    await send_dm(user_id, msg)
+                                    user = bot.get_user(discord_id)
+                                    username = user.mention if user else nick
+                                    winners_msg += f'{username}({win_amount}) '
+                                    no_winners += 1
+                                else:
+                                    wager_result(conn, wager_id, WAGER_RESULT.InProgress)
+                            if old_status == GAME_STATUS.Tied:
+                                if len(total_amounts) > 0:
+                                    result_msg = (f'The result of game {game_id}, captained by '
+                                                  f'{" and ".join(captains)}, was changed. '
+                                                  f'All wagers have been placed again.')
+                            elif (old_status == GAME_STATUS.Team1 or
+                                  old_status == GAME_STATUS.Team2):
+                                if len(total_amounts) == 1:
+                                    result_msg = (f'The result of game {game_id}, captained by '
+                                                  f'{" and ".join(captains)}, was changed. '
+                                                  f'All wagers have been placed again.')
+                                if len(total_amounts) == 2:
+                                    verb = "was" if no_winners == 1 else "were"
+                                    result_msg = (f'The result of game {game_id}, captained by '
+                                                  f'{" and ".join(captains)}, was changed. The winnings of '
+                                                  f'{winners_msg} for a total of {payout} shazbucks {verb} '
+                                                  f'clawed back.')
+                            if result_msg:
+                                await ctx.send(result_msg)
+                        # Payout based on new result
+                        result_msg = ''
+                        no_winners = 0
+                        payout = 0
+                        winners_msg = f''
+                        ratio = 0
+                        if GAME_STATUS.Team1.name in total_amounts and GAME_STATUS.Team2.name in total_amounts:
+                            ta_t1 = total_amounts[GAME_STATUS.Team1.name]
+                            ta_t2 = total_amounts[GAME_STATUS.Team2.name]
+                            if new_status == GAME_STATUS.Team1:
+                                ratio = (ta_t1 + ta_t2) / ta_t1
+                            if new_status == GAME_STATUS.Team2:
+                                ratio = (ta_t1 + ta_t2) / ta_t2
+                        finish_game(conn, game_id, new_status)
+                        for wager in wagers:
+                            wager_id: int = wager[0]
+                            user_id: int = wager[1]
+                            prediction: int = wager[2]
+                            amount: int = wager[3]
+                            nick: str = wager[4]
+                            discord_id: int = wager[5]
+                            if new_status == GAME_STATUS.Tied:
+                                transfer = (bot_user_id, user_id, amount)
+                                create_transfer(conn, transfer)
+                                wager_result(conn, wager_id, WAGER_RESULT.Canceled)
+                                msg = (f'Hi {nick}. The result of game {game_id}, captained by '
+                                       f'{" and ".join(captains)}, was changed to a tie. Your bet of {amount} '
+                                       f'shazbucks has been returned to you.')
+                                await send_dm(user_id, msg)
+                            elif ratio == 0:
+                                transfer = (bot_user_id, user_id, amount)
+                                create_transfer(conn, transfer)
+                                wager_result(conn, wager_id, WAGER_RESULT.Canceled)
+                                msg = (f'Hi {nick}. The result of game {game_id}, captained by '
+                                       f'{" and ".join(captains)}, was changed. Nobody took your bet. '
+                                       f'Your bet of {amount} shazbucks has been returned to you.')
+                                await send_dm(user_id, msg)
+                            elif prediction == new_status:
+                                win_amount = round(amount * ratio)
+                                payout += win_amount
+                                transfer = (bot_user_id, user_id, win_amount)
+                                create_transfer(conn, transfer)
+                                wager_result(conn, wager_id, WAGER_RESULT.Won)
+                                msg = (f'Hi {nick}. The result of game {game_id}, captained by '
+                                       f'{" and ".join(captains)}, was changed. You correctly predicted the '
+                                       f'new result. You have won {win_amount} shazbucks.')
+                                await send_dm(user_id, msg)
+                                user = bot.get_user(discord_id)
+                                username = user.mention if user else nick
+                                winners_msg += f'{username}({win_amount}) '
+                                no_winners += 1
+                            else:
+                                wager_result(conn, wager_id, WAGER_RESULT.Lost)
+                                msg = (f'Hi {nick}. The result of game {game_id}, captained by '
+                                       f'{" and ".join(captains)}, was changed. You did not predicted the '
+                                       f'new result and lost your bet of {amount} shazbucks.')
+                                await send_dm(user_id, msg)
+                        if new_status == GAME_STATUS.Tied:
+                            if len(total_amounts) > 0:
+                                result_msg = (f'The result of game {game_id}, captained by '
+                                              f'{" and ".join(captains)}, was changed to a tie. '
+                                              f'All wagers have been returned.')
+                        elif (new_status == GAME_STATUS.Team1 or
+                              new_status == GAME_STATUS.Team2):
+                            if len(total_amounts) == 1:
+                                result_msg = (f'The result of game {game_id}, captained by '
+                                              f'{" and ".join(captains)}, was changed. '
+                                              f'The game only had bets on one team. '
+                                              f'All wagers have been returned.')
+                            if len(total_amounts) == 2:
+                                verb = "was" if no_winners == 1 else "were"
+                                result_msg = (f'The result of game {game_id}, captained by '
+                                              f'{" and ".join(captains)}, was changed. '
+                                              f'{winners_msg}{verb} paid out a total of {payout} shazbucks.')
+                        if result_msg:
+                            await ctx.send(result_msg)
+                        success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
     # @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
     # @in_channel(BOT_CHANNEL_ID)
     # @commands.has_role('Developer')

@@ -951,7 +951,7 @@ def start_bot():
                     for capt_id in capt_ids:
                         user = bot.get_user(capt_id)
                         if user:
-                            teams += (user.name,)
+                            teams += (user.display_name,)
                         else:
                             teams += (str(capt_id),)
                     game = (queue,) + teams

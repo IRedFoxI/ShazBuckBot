@@ -1154,7 +1154,7 @@ def start_bot():
                 await message.add_reaction(REACTIONS[success])
             elif 'has been substituted with' in message.content:
                 success = False
-                old_player, new_player = message.content.replace('`', '').split(' has been substituted with')
+                old_player, new_player = message.content.replace('`', '').split(' has been substituted with ')
                 search_str = '%' + old_player + '%'
                 sql = ''' SELECT id, team1, team2, status FROM games 
                           WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
@@ -1189,7 +1189,7 @@ def start_bot():
                 await message.add_reaction(REACTIONS[success])
             elif 'has been swapped with' in message.content:
                 success = False
-                player1, player2 = message.content.replace('`', '').split(' has been swapped with')
+                player1, player2 = message.content.replace('`', '').split(' has been swapped with ')
                 search_str1 = '%' + player1 + '%'
                 search_str2 = '%' + player2 + '%'
                 values = (GAME_STATUS.InProgress, search_str1, search_str2, search_str2, search_str1)

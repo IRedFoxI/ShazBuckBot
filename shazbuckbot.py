@@ -549,9 +549,11 @@ def start_bot():
                                f'Bets have to be made within {BET_WINDOW} minutes after picking is complete')
                         await send_dm(user_id, msg)
                     else:
-                        sql = ''' SELECT id, prediction FROM wagers WHERE user_id = ? AND game_id = ? '''
+                        sql = ''' SELECT id, prediction FROM wagers 
+                                  WHERE user_id = ? AND game_id = ? AND result = ? '''
+                        values = (user_id, game_id, WAGER_RESULT.InProgress)
                         cursor = conn.cursor()
-                        cursor.execute(sql, (user_id, game_id,))
+                        cursor.execute(sql, values)
                         prev_wager: Tuple[int] = cursor.fetchone()
                         if prev_wager and prediction != prev_wager[1]:
                             msg = f'Hi {nick}, you cannot bet against yourself!'

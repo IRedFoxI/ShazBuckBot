@@ -1156,10 +1156,11 @@ def start_bot():
                 success = False
                 old_player, new_player = message.content.replace('`', '').split(' has been substituted with')
                 search_str = '%' + old_player + '%'
-                sql = ''' SELECT id, team1, team2 FROM games 
-                          WHERE status = ? AND (team1 LIKE ? OR team2 LIKE ?)'''
+                sql = ''' SELECT id, team1, team2, status FROM games 
+                          WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
+                values = (GAME_STATUS.Picking, GAME_STATUS.InProgress, search_str, search_str)
                 cursor = conn.cursor()
-                cursor.execute(sql, (GAME_STATUS.InProgress, search_str, search_str))  # Don't care about picking
+                cursor.execute(sql, values)
                 games = cursor.fetchall()
                 if not games:
                     print('PANIC: Player substituted, but no game with that player and InProgress '
@@ -1172,15 +1173,18 @@ def start_bot():
                     game_id: int = games[-1][0]
                     team1: str = games[-1][1]
                     team2: str = games[-1][2]
+                    status: int = games[-1][3]
                     if old_player in team1:
                         teams = (team1.replace(old_player, new_player), team2)
                         update_teams(conn, game_id, teams)
-                        await cancel_wagers(game_id, 'a player substitution')
+                        if status == GAME_STATUS.InProgress:
+                            await cancel_wagers(game_id, 'a player substitution')
                         success = True
                     elif old_player in team2:
                         teams = (team1, team2.replace(old_player, new_player))
                         update_teams(conn, game_id, teams)
-                        await cancel_wagers(game_id, 'a player substitution')
+                        if status == GAME_STATUS.InProgress:
+                            await cancel_wagers(game_id, 'a player substitution')
                         success = True
                 await message.add_reaction(REACTIONS[success])
             elif 'has been swapped with' in message.content:

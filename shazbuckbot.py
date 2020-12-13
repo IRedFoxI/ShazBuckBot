@@ -378,7 +378,7 @@ def start_bot():
 
     @bot.command(name='shazbucks', help='Create an account and get free shazbucks')
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_hello(ctx):
+    async def cmd_shazbucks(ctx):
         success = False
         discord_id = ctx.author.id
         nick = ctx.author.name

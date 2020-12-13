@@ -334,7 +334,10 @@ def start_bot():
         member = None
         for guild in bot.guilds:
             if guild.get_channel(BOT_CHANNEL_ID):
-                member = await guild.fetch_member(discord_id)
+                try:
+                    member = await guild.fetch_member(discord_id)
+                except discord.NotFound:
+                    pass
         return member
 
     async def send_dm(user_id, message) -> None:
@@ -1239,6 +1242,8 @@ def start_bot():
     async def on_command_error(ctx, error):
         if isinstance(error, commands.errors.CommandNotFound):
             print(ctx.author.name)
+            print(error)
+        elif isinstance(error, commands.errors.CommandInvokeError):
             print(error)
 
     bot.run(TOKEN)

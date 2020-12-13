@@ -326,7 +326,7 @@ def start_bot():
     bot_user_id = cur.fetchone()[0]
     atexit.register(close_db, conn)
 
-    def get_member(discord_id) -> discord.Member:
+    async def get_member(discord_id) -> discord.Member:
         """Find the discord member based on their discord id
 
         :param int discord_id: The discord id of the user
@@ -334,7 +334,7 @@ def start_bot():
         member = None
         for guild in bot.guilds:
             if guild.get_channel(BOT_CHANNEL_ID):
-                member = guild.get_member(discord_id)
+                member = await guild.fetch_member(discord_id)
         return member
 
     async def send_dm(user_id, message) -> None:
@@ -345,7 +345,7 @@ def start_bot():
         """
         (discord_id, mute_dm) = get_user_data(conn, user_id, 'discord_id, mute_dm')
         if not mute_dm:
-            user = get_member(discord_id)
+            user = await get_member(discord_id)
             if user:
                 await asyncio.sleep(DM_TIME_TO_WAIT)
                 await user.create_dm()
@@ -788,7 +788,7 @@ def start_bot():
                                            f'{" and ".join(captains)}, was changed. Your previous payout of '
                                            f'{win_amount} shazbucks has been clawed back.')
                                     await send_dm(user_id, msg)
-                                    user = get_member(discord_id)
+                                    user = await get_member(discord_id)
                                     username = user.mention if user else nick
                                     winners_msg += f'{username}({win_amount}) '
                                     no_winners += 1
@@ -860,7 +860,7 @@ def start_bot():
                                        f'{" and ".join(captains)}, was changed. You correctly predicted the '
                                        f'new result. You have won {win_amount} shazbucks.')
                                 await send_dm(user_id, msg)
-                                user = get_member(discord_id)
+                                user = await get_member(discord_id)
                                 username = user.mention if user else nick
                                 winners_msg += f'{username}({win_amount}) '
                                 no_winners += 1
@@ -961,7 +961,7 @@ def start_bot():
                     capt_ids = [int(i) for i in capt_ids]
                     teams = ()
                     for capt_id in capt_ids:
-                        user = get_member(capt_id)
+                        user = await get_member(capt_id)
                         if user:
                             teams += (user.display_name,)
                         else:
@@ -1111,7 +1111,7 @@ def start_bot():
                                     msg = (f'Hi {nick}. You correctly predicted the game captained by '
                                            f'{" and ".join(captains)}. You have won {win_amount} shazbucks.')
                                     await send_dm(user_id, msg)
-                                    user = get_member(discord_id)
+                                    user = await get_member(discord_id)
                                     username = user.mention if user else nick
                                     winners_msg += f'{username}({win_amount}) '
                                     no_winners += 1

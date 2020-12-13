@@ -632,7 +632,8 @@ def start_bot():
                     captains = [team.split(':')[0] for team in teams]
                     run_time = game[3]
                     cursor = conn.cursor()
-                    cursor.execute(''' SELECT prediction, amount FROM wagers WHERE game_id = ? ''', (game_id,))
+                    sql = ''' SELECT prediction, amount FROM wagers WHERE game_id = ? AND result = ? '''
+                    cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
                     wagers = cursor.fetchall()
                     total_amounts = {GAME_STATUS.Team1: 0, GAME_STATUS.Team2: 0}
                     for wager in wagers:
@@ -720,10 +721,10 @@ def start_bot():
                         payout = 0
                         winners_msg = f''
                         sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id 
-                                                              FROM users, wagers 
-                                                              WHERE game_id = ? AND users.id = wagers.user_id '''
+                                  FROM users, wagers 
+                                  WHERE game_id = ? AND users.id = wagers.user_id AND result <> ?'''
                         cursor = conn.cursor()
-                        cursor.execute(sql, (game_id,))
+                        cursor.execute(sql, (game_id, WAGER_RESULT.Canceled))
                         wagers = cursor.fetchall()
                         for wager in wagers:
                             prediction = GAME_STATUS(wager[2]).name
@@ -1049,9 +1050,9 @@ def start_bot():
                             finish_game(conn, game_id, game_result)
                             sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id 
                                       FROM users, wagers 
-                                      WHERE game_id = ? AND users.id = wagers.user_id '''
+                                      WHERE game_id = ? AND users.id = wagers.user_id AND result = ? '''
                             cursor = conn.cursor()
-                            cursor.execute(sql, (game_id,))
+                            cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
                             wagers = cursor.fetchall()
                             for wager in wagers:
                                 prediction = GAME_STATUS(wager[2]).name

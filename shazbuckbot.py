@@ -695,7 +695,7 @@ def start_bot():
                     discord_id: int = user[1]
                     balance: int = user[2]
                     member = await get_member(discord_id)
-                    username = member.mention if member else nick
+                    username = member.display_name if member else nick
                     top5_str += f'{username} ({balance})'
                     if i < len(users) - 2:
                         top5_str += ', '

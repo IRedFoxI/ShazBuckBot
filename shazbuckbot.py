@@ -1118,11 +1118,12 @@ def start_bot():
                     cursor = conn.cursor()
                     cursor.execute(sql, game_values)
                     games = cursor.fetchall()
-                    game_id: int = games[0][0]
+                    game_id = 0
                     if not games:
                         print(f'PANIC: Game finished in {queue} queue, but no game with InProgress status and '
                               f'correct time in that queue.')
                     else:
+                        game_id: int = games[0][0]
                         teams: Tuple[str, str] = games[0][2:4]
                         captains = [team.split(":")[0] for team in teams]
                         if len(games) > 1:

@@ -707,6 +707,48 @@ def start_bot():
                 success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
+    @bot.command(name='philanthropists', help='Show the top 5 gifting players')
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_philanthropists(ctx):
+        success = False
+        discord_id = ctx.author.id
+        cursor = conn.cursor()
+        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
+        data = cursor.fetchone()
+        if data is None:
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
+        else:
+            user_id: int = data[0]
+            nick: str = data[1]
+            sql = ''' SELECT nick, discord_id, SUM(amount) FROM users, transfers WHERE users.id = sender 
+                      AND sender <> 1 AND receiver <> 1 AND sender <> receiver GROUP BY sender 
+                      ORDER BY SUM(amount) DESC LIMIT 5; '''
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            users = cursor.fetchall()
+            if not users:
+                msg = f'Hi {nick}. Something went wrong, no top 5 gifters.'
+                await send_dm(user_id, msg)
+            else:
+                top5_str = 'The top 5 players who gifted the most shazbucks are: '
+                for i, user in enumerate(users):
+                    nick: str = user[0]
+                    discord_id: int = user[1]
+                    amount: int = user[2]
+                    member = await get_member(discord_id)
+                    username = member.display_name if member else nick
+                    top5_str += f'{username} ({amount})'
+                    if i < len(users) - 2:
+                        top5_str += ', '
+                    elif i == len(users) - 2:
+                        top5_str += ' and '
+                    else:
+                        top5_str += '.'
+                await ctx.send(top5_str)
+                success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
     @bot.command(name='quit', help='Shutdown bot')
     @in_channel(BOT_CHANNEL_ID)
     @commands.has_role('Developer')

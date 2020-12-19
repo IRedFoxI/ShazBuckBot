@@ -18,6 +18,7 @@ TOKEN = config['token']
 DATABASE = config['database']
 DISCORD_ID = config['discord_id']
 INIT_BAL = config['init_bal']
+BUCKS_PER_PUG = config['bucks_per_pug']
 BET_WINDOW = config['bet_window']
 BULLYBOT_DISCORD_ID = config['bullybot_discord_id']
 REDFOX_DISCORD_ID = config['redfox_discord_id']
@@ -30,11 +31,9 @@ DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
 
 
-def normalize_caseless(text):
-    return unicodedata.normalize("NFKD", text.casefold())
-
-
 def caseless_equal(left, right):
+    def normalize_caseless(text):
+        return unicodedata.normalize("NFKD", text.casefold())
     return normalize_caseless(left) == normalize_caseless(right)
 
 
@@ -333,7 +332,7 @@ def start_bot():
             return ctx.message.author.id == REDFOX_DISCORD_ID or role in ctx.author.roles
         return commands.check(predicate)
 
-    async def get_member(discord_id) -> discord.Member:
+    async def fetch_member(discord_id) -> discord.Member:
         """Find the discord member based on their discord id
 
         :param int discord_id: The discord id of the user
@@ -347,6 +346,22 @@ def start_bot():
                     pass
         return member
 
+    async def query_members(nick) -> discord.Member:
+        """Find the discord member based on their discord id
+
+        :param str nick: The nick of the user
+        """
+        member = None
+        for guild in bot.guilds:
+            if guild.get_channel(BOT_CHANNEL_ID):
+                try:
+                    members: List[discord.Member] = await guild.query_members(nick)
+                    if members:
+                        member = members[0]
+                except discord.NotFound:
+                    pass
+        return member
+
     async def send_dm(user_id, message) -> None:
         """Send a discord DM to the user
 
@@ -355,7 +370,7 @@ def start_bot():
         """
         (discord_id, mute_dm) = get_user_data(conn, user_id, 'discord_id, mute_dm')
         if not mute_dm:
-            user = await get_member(discord_id)
+            user = await fetch_member(discord_id)
             if user:
                 await asyncio.sleep(DM_TIME_TO_WAIT)
                 await user.create_dm()
@@ -701,7 +716,7 @@ def start_bot():
                     nick: str = user[0]
                     discord_id: int = user[1]
                     balance: int = user[2]
-                    member = await get_member(discord_id)
+                    member = await fetch_member(discord_id)
                     username = member.display_name if member else nick
                     top5_str += f'{username} ({balance})'
                     if i < len(users) - 2:
@@ -743,7 +758,7 @@ def start_bot():
                     nick: str = user[0]
                     discord_id: int = user[1]
                     amount: int = user[2]
-                    member = await get_member(discord_id)
+                    member = await fetch_member(discord_id)
                     username = member.display_name if member else nick
                     top5_str += f'{username} ({amount})'
                     if i < len(users) - 2:
@@ -880,7 +895,7 @@ def start_bot():
                                            f'{" and ".join(captains)}, was changed. Your previous payout of '
                                            f'{win_amount} shazbucks has been clawed back.')
                                     await send_dm(user_id, msg)
-                                    user = await get_member(discord_id)
+                                    user = await fetch_member(discord_id)
                                     username = user.mention if user else nick
                                     winners_msg += f'{username}({win_amount}) '
                                     no_winners += 1
@@ -952,7 +967,7 @@ def start_bot():
                                        f'{" and ".join(captains)}, was changed. You correctly predicted the '
                                        f'new result. You have won {win_amount} shazbucks.')
                                 await send_dm(user_id, msg)
-                                user = await get_member(discord_id)
+                                user = await fetch_member(discord_id)
                                 username = user.mention if user else nick
                                 winners_msg += f'{username}({win_amount}) '
                                 no_winners += 1
@@ -1053,7 +1068,7 @@ def start_bot():
                     capt_ids = [int(i) for i in capt_ids]
                     teams = ()
                     for capt_id in capt_ids:
-                        user = await get_member(capt_id)
+                        user = await fetch_member(capt_id)
                         if user:
                             teams += (user.display_name,)
                         else:
@@ -1139,6 +1154,7 @@ def start_bot():
                             game_id = games[idx][0]
                             teams = games[idx][2:4]
                             captains = [team.split(":")[0] for team in teams]
+                        # Establish the result of the game
                         game_result = 0
                         if 'Tie' in result:
                             game_result += GAME_STATUS.Tied
@@ -1150,6 +1166,7 @@ def start_bot():
                                 game_result += GAME_STATUS.Team2
                             else:
                                 print(f'Winner {winner} not found in game {game_id}:\n{teams[0]}\nversus\n{teams[1]}')
+                        # Save the result of the game and resolve all wagers
                         if game_result != 0:
                             finish_game(conn, game_id, game_result)
                             sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id 
@@ -1204,7 +1221,7 @@ def start_bot():
                                     msg = (f'Hi {nick}. You correctly predicted the game captained by '
                                            f'{" and ".join(captains)}. You have won {win_amount} shazbucks.')
                                     await send_dm(user_id, msg)
-                                    user = await get_member(discord_id)
+                                    user = await fetch_member(discord_id)
                                     username = user.mention if user else nick
                                     winners_msg += f'{username}({win_amount}) '
                                     no_winners += 1
@@ -1213,6 +1230,24 @@ def start_bot():
                                     msg = (f'Hi {nick}. You lost your bet on the game captained by '
                                            f'{" and ".join(captains)}. You have lost your {amount} shazbucks.')
                                     await send_dm(user_id, msg)
+                        # Pay those who played
+                        for team in teams:
+                            players = team.replace(':', ',').split(', ')
+                            for player in players:
+                                member = await query_members(player)
+                                if member:
+                                    cursor = conn.cursor()
+                                    cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''',
+                                                   (member.id,))
+                                    user = cursor.fetchone()
+                                    if user:
+                                        user_id: int = user[0]
+                                        nick: str = user[1]
+                                        transfer = (bot_user_id, user_id, BUCKS_PER_PUG)
+                                        create_transfer(conn, transfer)
+                                        msg = (f'Hi {nick}. You played a game captained by {" and ".join(captains)}. '
+                                               f'For your efforts you have been rewarded {BUCKS_PER_PUG} shazbucks')
+                                        await send_dm(user_id, msg)
                     if game_result is None:
                         result_msg = '\'ERROR: Game not found\''
                     elif game_result == 0:

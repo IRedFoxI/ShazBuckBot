@@ -20,6 +20,7 @@ DISCORD_ID = config['discord_id']
 INIT_BAL = config['init_bal']
 BET_WINDOW = config['bet_window']
 BULLYBOT_DISCORD_ID = config['bullybot_discord_id']
+REDFOX_DISCORD_ID = config['redfox_discord_id']
 PUG_CHANNEL_ID = config['pug_channel_id']
 BOT_CHANNEL_ID = config['bot_channel_id']
 GAME_STATUS = IntEnum('Game_Status', 'Picking Cancelled InProgress Team1 Team2 Tied')
@@ -325,6 +326,12 @@ def start_bot():
     cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (DISCORD_ID,))
     bot_user_id = cur.fetchone()[0]
     atexit.register(close_db, conn)
+
+    def is_admin():
+        def predicate(ctx):
+            role = discord.utils.get(ctx.guild.roles, name="Developer")
+            return ctx.message.author.id == REDFOX_DISCORD_ID or role in ctx.author.roles
+        return commands.check(predicate)
 
     async def get_member(discord_id) -> discord.Member:
         """Find the discord member based on their discord id
@@ -751,7 +758,7 @@ def start_bot():
 
     @bot.command(name='quit', help='Shutdown bot')
     @in_channel(BOT_CHANNEL_ID)
-    @commands.has_role('Developer')
+    @is_admin()
     async def cmd_quit(ctx):
         success = True
         await ctx.message.add_reaction(REACTIONS[success])
@@ -762,7 +769,7 @@ def start_bot():
             pass
 
     @bot.command(name='change_game', help='Change the outcome of a game')
-    @commands.has_role('Developer')
+    @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_change_game(ctx, game_id: int, result: str):
         success = False
@@ -979,7 +986,7 @@ def start_bot():
 
     # @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
     # @in_channel(BOT_CHANNEL_ID)
-    # @commands.has_role('Developer')
+    # @is_admin()
     # async def cmd_win(ctx):
     #     title = "Game 'NA' finished"
     #     description = '**Winner:** Team jet.Pixel\n**Duration:** 5 Minutes'
@@ -988,7 +995,7 @@ def start_bot():
 
     # @bot.command(name='tie', help='Simulate tie result message')  # TODO: Remove this command
     # @in_channel(BOT_CHANNEL_ID)
-    # @commands.has_role('Developer')
+    # @is_admin()
     # async def cmd_tie(ctx):
     #     title = "Game 'NA' finished"
     #     description = '**Tie game**\n**Duration:** 53 Minutes'
@@ -996,7 +1003,7 @@ def start_bot():
     #     await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
     # @bot.command(name='pick', help='Simulate picked message')  # TODO: Remove this command
-    # @commands.has_role('Developer')
+    # @is_admin()
     # @in_channel(BOT_CHANNEL_ID)
     # async def cmd_picked(ctx):
     #     title = "Game 'NA' teams picked"
@@ -1009,7 +1016,7 @@ def start_bot():
     #     await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
     # @bot.command(name='begin', help='Simulate begin message')  # TODO: Remove this command
-    # @commands.has_role('Developer')
+    # @is_admin()
     # @in_channel(BOT_CHANNEL_ID)
     # async def cmd_begin(ctx):
     #     title = "Game 'NA' has begun"

@@ -1243,11 +1243,20 @@ def start_bot():
                                     if user:
                                         user_id: int = user[0]
                                         nick: str = user[1]
-                                        transfer = (bot_user_id, user_id, BUCKS_PER_PUG)
-                                        create_transfer(conn, transfer)
-                                        msg = (f'Hi {nick}. You played a game captained by {" and ".join(captains)}. '
-                                               f'For your efforts you have been rewarded {BUCKS_PER_PUG} shazbucks')
-                                        await send_dm(user_id, msg)
+                                        if player in captains:
+                                            index = 1 - captains.index(player)
+                                            transfer = (bot_user_id, user_id, BUCKS_PER_PUG*2)
+                                            create_transfer(conn, transfer)
+                                            msg = (f'Hi {nick}. You captained a game against {captains[index]}. For '
+                                                   f'your efforts you have been rewarded {BUCKS_PER_PUG*2} shazbucks')
+                                            await send_dm(user_id, msg)
+                                        else:
+                                            transfer = (bot_user_id, user_id, BUCKS_PER_PUG)
+                                            create_transfer(conn, transfer)
+                                            msg = (f'Hi {nick}. You played a game captained by '
+                                                   f'{" and ".join(captains)}. For your efforts you have been rewarded '
+                                                   f'{BUCKS_PER_PUG} shazbucks')
+                                            await send_dm(user_id, msg)
                     if game_result is None:
                         result_msg = '\'ERROR: Game not found\''
                     elif game_result == 0:

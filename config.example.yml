@@ -1,1 +1,10 @@
-// Insert Configuration Constants Here
+token: <discord bot token>
+database: <database file name>
+init_bal: 100
+bucks_per_pug: 5
+bet_window: 10
+discord_id: <bot discord id>
+bullybot_discord_id: 359925573134319628
+redfox_discord_id: 292031989773500416
+pug_channel_id: 681756238190870601
+bot_channel_id: 681756238190870601

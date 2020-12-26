@@ -1135,22 +1135,34 @@ def start_bot():
                     capt_str = capt_str.replace('**', '').replace('Captains:', '').replace('&', '')
                     pattern = '[<@!>]'
                     capt_ids = re.sub(pattern, '', capt_str).split()
-                    capt_ids = [int(i) for i in capt_ids]
-                    teams = ()
-                    for capt_id in capt_ids:
-                        user = await fetch_member(capt_id)
-                        if user:
-                            teams += (user.display_name,)
-                        else:
-                            teams += (str(capt_id),)
+                    teams = tuple(capt_ids)
+                    # captains = ()
+                    # for capt_id in capt_ids:
+                    #     user = await fetch_member(int(capt_id))
+                    #     if user:
+                    #         captains += (user.display_name,)
+                    #     else:
+                    #         captains += (capt_id,)
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
                     logging.info(f'Game {game_id} created in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
-                    queue = message.content.split("'")[1]
-                    teams: Tuple[str, ...] = tuple(description.split('\n')[1:3])
-                    captains = tuple([team.split(':')[0] for team in teams])
+                    queue: str = message.content.split("'")[1]
+                    teams_strings = description.split('\n')[1:3]
+                    # teams_strings = [team_str.replace(':', ',').split(', ') for team_str in teams_strings]
+                    teams: Tuple[str, ...] = ()
+                    for team_str in teams_strings:
+                        ids = []
+                        players = team_str.replace(':', ',').split(', ')
+                        for player in players:
+                            member = await query_members(player)
+                            if member:
+                                ids.append(str(member.id))
+                            else:
+                                ids.append(player)  # TODO: write a PANIC message to log instead
+                        teams += (" ".join(ids),)
+                    captains = tuple([team.split(' ')[0] for team in teams])
                     # Find the game that was just picked
                     game_values = (queue, GAME_STATUS.Picking) + captains + (captains[1], captains[0])
                     sql = ''' SELECT id FROM games WHERE queue = ? AND status = ? 
@@ -1217,13 +1229,16 @@ def start_bot():
                     else:
                         game_id: int = games[0][0]
                         teams: Tuple[str, str] = games[0][2:4]
-                        captains = [team.split(":")[0] for team in teams]
+                        captains = [team.split()[0] for team in teams]
                         if len(games) > 1:
                             duration_offsets: List[int] = [game[1] for game in games]
                             _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
                             game_id = games[idx][0]
                             teams = games[idx][2:4]
-                            captains = [team.split(":")[0] for team in teams]
+                            captains = [team.split()[0] for team in teams]
+                        # If discord id convert to nick
+                        captains = [(await fetch_member(int(capt))).display_name if capt.isdigit else capt
+                                    for capt in captains]
                         # Establish the result of the game
                         game_result = 0
                         if 'Tie' in result:

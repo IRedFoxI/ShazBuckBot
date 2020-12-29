@@ -817,6 +817,16 @@ def start_bot():
                 success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
+    @bot.command(name='graph', help='Show a graph of your shazbucks over time')
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_graph(ctx):
+        # success = False
+        discord_id = ctx.author.id
+        graph_url = f'https://club77.org/shazbuckbot/usergraph.py?discord_id={discord_id}'
+        await ctx.send(graph_url)
+        success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
     @bot.command(name='quit', help='Shutdown bot')
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()

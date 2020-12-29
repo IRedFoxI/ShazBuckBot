@@ -689,9 +689,9 @@ def start_bot():
                     success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @bot.command(name='philanthropists', help='Show the top 5 gifting players')
+    @bot.command(name='top5', help='Show the top 5 players')
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_philanthropists(ctx):
+    async def cmd_top5(ctx):
         success = False
         discord_id = ctx.author.id
         cursor = conn.cursor()
@@ -703,26 +703,22 @@ def start_bot():
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            sql = ''' SELECT nick, discord_id, SUM(CASE WHEN users.id = sender THEN amount ELSE -amount END) 
-                      AS total_sender_amount FROM users, transfers 
-                      WHERE (users.id = receiver or users.id = sender) 
-                      AND sender <> 1 AND receiver <> 1 AND sender <> receiver 
-                      GROUP BY nick ORDER BY total_sender_amount DESC LIMIT 5; '''
+            sql = ''' SELECT nick, discord_id, balance FROM users ORDER BY balance DESC LIMIT 5 '''
             cursor = conn.cursor()
             cursor.execute(sql)
             users = cursor.fetchall()
             if not users:
-                msg = f'Hi {nick}. Something went wrong, no top 5 gifters.'
+                msg = f'Hi {nick}. Something went wrong, no top 5.'
                 await send_dm(user_id, msg)
             else:
-                top5_str = 'The top 5 players who gifted the most shazbucks are: '
+                top5_str = 'The top 5 players with the most shazbucks are: '
                 for i, user in enumerate(users):
                     nick: str = user[0]
                     discord_id: int = user[1]
-                    amount: int = user[2]
+                    balance: int = user[2]
                     member = await fetch_member(discord_id)
                     username = member.display_name if member else nick
-                    top5_str += f'{username} ({amount})'
+                    top5_str += f'{username} ({balance})'
                     if i < len(users) - 2:
                         top5_str += ', '
                     elif i == len(users) - 2:

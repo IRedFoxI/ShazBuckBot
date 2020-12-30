@@ -32,7 +32,7 @@ else:
     discord_ids = ['292031989773500416', '347125254050676738']
 
 # Set up the plot
-fig, ax = plt.subplots(figsize=(6, 5))
+fig, ax = plt.subplots(figsize=(8, 6))
 color_index = 0
 
 nicks = []
@@ -67,7 +67,12 @@ for discord_id in discord_ids:
                 amount: int = d[4]
                 transfer_time: int = d[5]
     
-                balance = balance - amount if sender == user_id else balance + amount
+                if sender == user_id:
+                    balance -= amount
+
+                if receiver == user_id:
+                    balance += amount
+                
                 balances.append(balance)
                 timestamps.append(transfer_time)
     
@@ -81,16 +86,18 @@ for discord_id in discord_ids:
 # Finish plot
 ax.set_ylabel('Shazbucks')
 plt.xticks(rotation=25)
-# xfmt = md.DateFormatter('%Y-%m-%d %H:%M:%S')
 xfmt = md.DateFormatter('%d/%m/%Y')
 ax.xaxis.set_major_formatter(xfmt)
 plt.title(', '.join(nicks))
 ax.legend()
+ax.text(1.0, 0.5, 'Shazbucks by RedFox', transform=ax.transAxes, fontsize=10, color='gray',
+        alpha=0.25, ha='right', va='center', rotation='vertical')
 
 # Save the image to buffer
 buf = BytesIO()
 fig.savefig(buf, format='png')
 
+# Send the image
 sys.stdout.buffer.write(b'Content-type: image/png\r\n')
 sys.stdout.buffer.write(b'\r\n')
 sys.stdout.buffer.write(buf.getvalue())

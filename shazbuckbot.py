@@ -819,7 +819,7 @@ def start_bot():
 
     @bot.command(name='graph', help='Show a graph of your shazbucks over time')
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_graph(ctx, *members: commands.Greedy[discord.Member]):
+    async def cmd_graph(ctx, members: commands.Greedy[discord.Member], *, with_gifts=False):
         success = False
         discord_ids = []
         if len(members) == 0:
@@ -829,6 +829,8 @@ def start_bot():
                 discord_ids.append(str(member.id))
         ids_str = '&discord_id='.join(discord_ids)
         graph_url = f'https://club77.org/shazbuckbot/usergraph.py?discord_id={ids_str}'
+        if with_gifts:
+            graph_url += '&gift=true'
         e = discord.Embed(title='')
         e.set_image(url=graph_url)
         await ctx.send(embed=e)

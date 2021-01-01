@@ -1145,7 +1145,7 @@ def start_bot():
                             teams += (str(capt_id),)
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
-                    logging.info(f'Game {game_id} created in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
+                    logging.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
                     queue = message.content.split("'")[1]
@@ -1163,7 +1163,7 @@ def start_bot():
                                       f'{" and ".join(captains)} in that queue!')
                         game = (queue,) + teams
                         game_id = create_game(conn, game)
-                        logging.info(f'Game {game_id} created in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
+                        logging.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
                     else:
                         if len(games) > 1:
                             logging.error(f'Game picked in {queue} queue, but multiple games with Picking status and '
@@ -1171,7 +1171,7 @@ def start_bot():
                                           f'and hoping for the best.')
                         game_id: int = games[-1][0]
                     pick_game(conn, game_id, teams)
-                    logging.info(f'Game {game_id} picked in the {queue} queue:\n{teams[0]}\nversus\n{teams[1]}')
+                    logging.info(f'Game {game_id} picked in the {queue} queue:{teams[0]} versus {teams[1]}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'cancelled' in message.content:
                     success = False
@@ -1235,8 +1235,8 @@ def start_bot():
                             elif winner == captains[1]:
                                 game_result += GAME_STATUS.Team2
                             else:
-                                logging.error(f'Winner {winner} not found in game {game_id}:\n{teams[0]}\n'
-                                              f'versus\n{teams[1]}')
+                                logging.error(f'Winner {winner} not found in game {game_id}: {teams[0]} '
+                                              f'versus {teams[1]}')
                         # Save the result of the game and resolve all wagers
                         if game_result != 0:
                             finish_game(conn, game_id, game_result)

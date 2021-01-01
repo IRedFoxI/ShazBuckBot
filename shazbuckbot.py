@@ -1069,47 +1069,47 @@ def start_bot():
                         success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    # @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
-    # @in_channel(BOT_CHANNEL_ID)
-    # @is_admin()
-    # async def cmd_win(ctx):
-    #     title = "Game 'NA' finished"
-    #     description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
-    #     embed_msg = discord.Embed(description=description, color=0x00ff00)
-    #     await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-    #
-    # @bot.command(name='tie', help='Simulate tie result message')  # TODO: Remove this command
-    # @in_channel(BOT_CHANNEL_ID)
-    # @is_admin()
-    # async def cmd_tie(ctx):
-    #     title = "Game 'NA' finished"
-    #     description = '**Tie game**\n**Duration:** 53 Minutes'
-    #     embed_msg = discord.Embed(description=description, color=0x00ff00)
-    #     await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-    #
-    # @bot.command(name='pick', help='Simulate picked message')  # TODO: Remove this command
-    # @is_admin()
-    # @in_channel(BOT_CHANNEL_ID)
-    # async def cmd_picked(ctx):
-    #     title = "Game 'NA' teams picked"
-    #     description = ('**Teams**:\n'
-    #                    'RedFox: joey, thecaptaintea, yami, r.$.e\n'
-    #                    'ShazBuckBot: iloveoob, Lögïc, GUNDERSTRUTT, Crysta\n'
-    #                    '\n'
-    #                    '**Maps**: Elite, Exhumed')
-    #     embed_msg = discord.Embed(description=description, color=0x00ff00)
-    #     await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-    #
-    # @bot.command(name='begin', help='Simulate begin message')  # TODO: Remove this command
-    # @is_admin()
-    # @in_channel(BOT_CHANNEL_ID)
-    # async def cmd_begin(ctx):
-    #     title = "Game 'NA' has begun"
-    #     description = ('**Captains: <@292031989773500416> & <@776567538867503134>**\n'
-    #                    'joey, thecaptaintea, yami, r.$.e, iloveoob, Lögïc, '
-    #                    'GUNDERSTRUTT, Crysta')
-    #     embed_msg = discord.Embed(description=description, color=0x00ff00)
-    #     await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+    @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_win(ctx):
+        title = "Game 'NA' finished"
+        description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+
+    @bot.command(name='tie', help='Simulate tie result message')  # TODO: Remove this command
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_tie(ctx):
+        title = "Game 'NA' finished"
+        description = '**Tie game**\n**Duration:** 53 Minutes'
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+
+    @bot.command(name='pick', help='Simulate picked message')  # TODO: Remove this command
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_picked(ctx):
+        title = "Game 'NA' teams picked"
+        description = ('**Teams**:\n'
+                       'RedFox: RedFox, RedFox, RedFox, RedFox\n'
+                       'ShazBuckBot: RedFox, RedFox, RedFox, RedFox\n'
+                       '\n'
+                       '**Maps**: Elite, Exhumed')
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+
+    @bot.command(name='begin', help='Simulate begin message')  # TODO: Remove this command
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_begin(ctx):
+        title = "Game 'NA' has begun"
+        description = ('**Captains: <@292031989773500416> & <@776567538867503134>**\n'
+                       'RedFox, RedFox, RedFox, RedFox, RedFox, RedFox, '
+                       'RedFox, RedFox')
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
     @bot.event
     async def on_message(message):

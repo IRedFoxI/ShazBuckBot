@@ -8,10 +8,11 @@ import unicodedata
 from enum import IntEnum
 import yaml
 import sqlite3
+from typing import List, Tuple
+import logging
 
 import discord
 from discord.ext import commands
-from typing import List, Tuple
 
 config = yaml.safe_load(open("config.yml"))
 TOKEN = config['token']
@@ -314,7 +315,7 @@ def close_db(conn) -> None:
     :param sqlite3.Connection conn: Connection to the database
     """
     conn.close()
-    print('Database closed.')
+    logging.info('Database closed.')
 
 
 def start_bot():
@@ -403,9 +404,10 @@ def start_bot():
 
     @bot.event
     async def on_ready():
-        print(f'{bot.user} is connected to the following guild(s):')
+        logging.info(f'{bot.user} is connected to the following guild(s):')
+        print()
         for guild in bot.guilds:
-            print(f'{guild.name}(id: {guild.id})')
+            logging.info(f'\t\t{guild.name}(id: {guild.id})')
 
     def in_channel(channel_id):
         def predicate(ctx):
@@ -1442,14 +1444,15 @@ def start_bot():
     @bot.event
     async def on_command_error(ctx, error):
         if isinstance(error, commands.errors.CommandNotFound):
-            print(ctx.author.name)
-            print(error)
+            logging.error(f'({ctx.author.display_name}) {ctx.message.content}: {error}')
         elif isinstance(error, commands.errors.CommandInvokeError):
-            print(error)
+            logging.error(f'({ctx.author.display_name}) {ctx.message.content}: {error}')
 
     bot.run(TOKEN)
 
 
 # Main
 if __name__ == '__main__':
+    logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
+                        level=logging.INFO)
     start_bot()

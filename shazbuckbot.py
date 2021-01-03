@@ -3,9 +3,12 @@
 
 import asyncio
 import atexit
+import os
 import re
 import unicodedata
 from enum import IntEnum
+
+import git
 import yaml
 import sqlite3
 from typing import List, Tuple
@@ -309,23 +312,11 @@ def init_db(conn) -> None:
     """)
 
 
-def close_db(conn) -> None:
-    """Close the database connection
-
-    :param sqlite3.Connection conn: Connection to the database
-    """
-    conn.close()
-    logging.info('Database closed.')
-
-
-def start_bot():
+def start_bot(conn):
     bot = commands.Bot(command_prefix='!')
-    conn = sqlite3.connect(DATABASE)
-    init_db(conn)
     cur = conn.cursor()
     cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (DISCORD_ID,))
     bot_user_id = cur.fetchone()[0]
-    atexit.register(close_db, conn)
 
     def is_admin():
         def predicate(ctx):
@@ -847,11 +838,67 @@ def start_bot():
         logging.info(f'{ctx.author.display_name} requested bot shutdown.')
         success = True
         await ctx.message.add_reaction(REACTIONS[success])
-        await ctx.bot.logout()
+        await bot.close()
+
+    @bot.command(name='restart', help='Restart bot')
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_restart(ctx):
+        logging.info(f'{ctx.author.display_name} requested bot restart.')
+        success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+        atexit.register(os.system, f'python3 {__file__}')
+        await bot.close()
+
+    @bot.command(name='update', help='Update bot using git')
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_update(ctx):
+        logging.info(f'{ctx.author.display_name} requested bot update.')
+        success = False
+        repo = git.Repo('./')
+        current_commit = repo.head.commit
         try:
-            quit()
-        except SystemExit:
-            pass
+            repo.remotes.origin.pull()
+            if current_commit == repo.head.commit:
+                logging.info('No change or ahead of repo.')
+                await ctx.author.create_dm()
+                await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, no update available!')
+
+            else:
+                logging.info('Updated successfully.')
+                await ctx.author.create_dm()
+                await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, updated successfully!')
+            success = True
+        except git.GitCommandError as e:
+            logging.error('Git command did not complete correctly:')
+            for line in str(e).split('\n'):
+                logging.error(f'\t{line}')
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, update did not complete successfully!')
+        await ctx.message.add_reaction(REACTIONS[success])
+
+    @bot.command(name='changelog', help='Show changelog')
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_update(ctx):
+        logging.info(f'{ctx.author.display_name} requested changelog.')
+        success = False
+        repo = git.Repo('./')
+        try:
+            log = repo.heads.master.log()
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, these are the latest commits:')
+            for entry in log:
+                await ctx.author.dm_channel.send(f'{entry}')
+            success = True
+        except git.GitCommandError as e:
+            logging.error('Git command did not complete correctly:')
+            for line in str(e).split('\n'):
+                logging.error(f'\t{line}')
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, error showing changelog!')
+        await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='change_game', help='Change the outcome of a game')
     @is_admin()
@@ -1473,4 +1520,8 @@ def start_bot():
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
                         level=logging.INFO)  # INFO
-    start_bot()
+    db_conn = sqlite3.connect(DATABASE)
+    init_db(db_conn)
+    start_bot(db_conn)
+    db_conn.close()
+    logging.info('Database closed.')

@@ -856,11 +856,11 @@ def start_bot(conn):
     async def cmd_update(ctx):
         logging.info(f'{ctx.author.display_name} requested bot update.')
         success = False
-        my_repo = git.Repo('./')
-        current_commit = my_repo.head.commit
+        repo = git.Repo('./')
+        current_commit = repo.head.commit
         try:
-            my_repo.remotes.origin.pull()
-            if current_commit == my_repo.head.commit:
+            repo.remotes.origin.pull()
+            if current_commit == repo.head.commit:
                 logging.info('No change or ahead of repo.')
                 await ctx.author.create_dm()
                 await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, no update available!')
@@ -876,6 +876,28 @@ def start_bot(conn):
                 logging.error(f'\t{line}')
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, update did not complete successfully!')
+        await ctx.message.add_reaction(REACTIONS[success])
+
+    @bot.command(name='changelog', help='Show changelog')
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_update(ctx):
+        logging.info(f'{ctx.author.display_name} requested changelog.')
+        success = False
+        repo = git.Repo('./')
+        try:
+            log = repo.heads.master.log()
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, these are the latest commits:')
+            for entry in log:
+                await ctx.author.dm_channel.send(f'{entry}')
+            success = True
+        except git.GitCommandError as e:
+            logging.error('Git command did not complete correctly:')
+            for line in str(e).split('\n'):
+                logging.error(f'\t{line}')
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, error showing changelog!')
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='change_game', help='Change the outcome of a game')

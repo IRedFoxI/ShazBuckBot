@@ -7,6 +7,8 @@ import os
 import re
 import unicodedata
 from enum import IntEnum
+
+import git
 import yaml
 import sqlite3
 from typing import List, Tuple
@@ -847,6 +849,34 @@ def start_bot(conn):
         await ctx.message.add_reaction(REACTIONS[success])
         atexit.register(os.system, f'python3 {__file__}')
         await bot.close()
+
+    @bot.command(name='update', help='Update bot using git')
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_update(ctx):
+        logging.info(f'{ctx.author.display_name} requested bot update.')
+        success = False
+        my_repo = git.Repo('./')
+        current_commit = my_repo.head.commit
+        try:
+            my_repo.remotes.origin.pull()
+            if current_commit == my_repo.head.commit:
+                logging.info('No change or ahead of repo.')
+                await ctx.author.create_dm()
+                await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, no update available!')
+
+            else:
+                logging.info('Updated successfully.')
+                await ctx.author.create_dm()
+                await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, updated successfully!')
+            success = True
+        except git.GitCommandError as e:
+            logging.error('Git command did not complete correctly:')
+            for line in str(e).split('\n'):
+                logging.error(f'\t{line}')
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, update did not complete successfully!')
+        await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='change_game', help='Change the outcome of a game')
     @is_admin()

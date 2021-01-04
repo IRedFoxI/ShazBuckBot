@@ -1182,21 +1182,25 @@ def start_bot(conn):
                     description = message.embeds[0].description
                 if 'begun' in message.content:
                     queue = message.content.split("'")[1]
-                    capt_str = description.split('\n')[0]
-                    capt_str = capt_str.replace('**', '').replace('Captains:', '').replace('&', '')
+                    descr_lines = description.split('\n')
+                    captains_str = descr_lines[0].replace('**', '').replace('Captains:', '').replace('&', '')
                     pattern = '[<@!>]'
-                    capt_ids = re.sub(pattern, '', capt_str).split()
-                    teams = tuple(capt_ids)
-                    # captains = ()
-                    # for capt_id in capt_ids:
-                    #     user = await fetch_member(int(capt_id))
-                    #     if user:
-                    #         captains += (user.display_name,)
-                    #     else:
-                    #         captains += (capt_id,)
+                    capt_ids_str = re.sub(pattern, '', captains_str).split()
+                    players_nicks = []
+                    for capt_id in capt_ids_str:
+                        member = await fetch_member(int(capt_id))
+                        players_nicks.append(member.display_name)
+                    for nick in descr_lines[1].split(', '):
+                        players_nicks.append(nick)
+                        member = await query_members(nick)
+                        if member:
+                            capt_ids_str[0] += f' {member.id}'
+                        else:
+                            logger.error(f'Could not find discord id for player {nick}')
+                    teams = tuple(capt_ids_str)
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
-                    logger.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
+                    logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(players_nicks)}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
                     queue: str = message.content.split("'")[1]

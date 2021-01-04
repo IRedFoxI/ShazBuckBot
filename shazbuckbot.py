@@ -1071,8 +1071,8 @@ def start_bot(conn):
                                 create_transfer(conn, transfer)
                                 wager_result(conn, wager_id, WAGER_RESULT.Canceled)
                                 msg = (f'Hi {nick}. The result of game {game_id}, captained by '
-                                       f'{" and ".join(captains)}, was changed. Nobody took your bet. '
-                                       f'Your bet of {amount} shazbucks has been returned to you.')
+                                       f'{" and ".join(captains)}, was changed. Nobody took your bet or the game was '
+                                       f'canceled. Your bet of {amount} shazbucks has been returned to you.')
                                 await send_dm(user_id, msg)
                             elif prediction == new_status:
                                 win_amount = round(amount * ratio)

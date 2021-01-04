@@ -1164,9 +1164,13 @@ def start_bot(conn):
         if (message.author.id == BULLYBOT_DISCORD_ID
                 or message.author.id == DISCORD_ID):
             logging.info(f'{message.author} wrote in #{message.channel} on '
-                         f'{message.guild}: {repr(message.content)}')
+                         f'{message.guild}:')
+            for line in message.content.split('\n'):
+                logging.info(f'\t{line}')
             for embed in message.embeds:
-                logging.info(f'{repr(embed.description)}')
+                logging.info(f'\t{repr(embed.title)}')
+                for line in embed.description.split('\n'):
+                    logging.info(f'\t\t{line}')
         # Parse BullyBot's messages for game info
         # (and own messages during development)
         if ((message.author.id == BULLYBOT_DISCORD_ID

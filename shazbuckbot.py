@@ -1245,6 +1245,7 @@ def start_bot():
                             game_result += GAME_STATUS.Tied
                         else:
                             winner = " ".join(result.split(' ')[2:])
+                            winner = str((await query_members(winner)).id)
                             if winner == captains[0]:
                                 game_result += GAME_STATUS.Team1
                             elif winner == captains[1]:

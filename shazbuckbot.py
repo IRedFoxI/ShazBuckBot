@@ -1169,8 +1169,9 @@ def start_bot(conn):
                 logger.debug(f'\t{line}')
             for embed in message.embeds:
                 logger.debug(f'\t{repr(embed.title)}')
-                for line in embed.description.split('\n'):
-                    logger.debug(f'\t\t{line}')
+                if embed.description:
+                    for line in embed.description.split('\n'):
+                        logger.debug(f'\t\t{line}')
         # Parse BullyBot's messages for game info
         # (and own messages during development)
         if ((message.author.id == BULLYBOT_DISCORD_ID

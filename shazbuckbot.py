@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """A discord bot to bet on PUGs."""
-
+import argparse
 import asyncio
 import atexit
 import os
@@ -395,9 +395,9 @@ def start_bot(conn):
 
     @bot.event
     async def on_ready():
-        logging.info(f'{bot.user} is connected to the following guild(s):')
+        logger.info(f'{bot.user} is connected to the following guild(s):')
         for guild in bot.guilds:
-            logging.info(f'\t\t{guild.name}(id: {guild.id})')
+            logger.info(f'\t\t{guild.name}(id: {guild.id})')
 
     def in_channel(channel_id):
         def predicate(ctx):
@@ -421,7 +421,7 @@ def start_bot(conn):
                     f'Hi {ctx.author.name}, something went wrong creating your account. Please try again later or '
                     f'contact an admin.'
                 )
-                logging.error(
+                logger.error(
                     f'Something went wrong creating an account for {ctx.author.name}. User id {user_id}.'
                 )
             else:
@@ -498,8 +498,8 @@ def start_bot(conn):
                         msg = (f'Hi {nick}, your gift of {amount} shazbucks to {receiver} was somehow '
                                f'unsuccessful. Please try again later.')
                         await send_dm(sender_id, msg)
-                        logging.error(f'{ctx.author.name} tried to gift {amount} shazbucks to {receiver_nick} '
-                                      f'but something went wrong.')
+                        logger.error(f'{ctx.author.name} tried to gift {amount} shazbucks to {receiver_nick} '
+                                     f'but something went wrong.')
                     else:
                         balance -= amount
                         receiver_bal += amount
@@ -599,9 +599,9 @@ def start_bot(conn):
                                 msg = (f'Hi {nick}, your bet of {amount} shazbucks on {winner} was somehow '
                                        f'unsuccessful. Please try again later.')
                                 await send_dm(user_id, msg)
-                                logging.error(f'{nick} tried to bet {amount} shazbucks on {winner} but something '
-                                              f'went wrong. User id {user_id}, game id {game_id}, prediction '
-                                              f'{prediction}.')
+                                logger.error(f'{nick} tried to bet {amount} shazbucks on {winner} but something '
+                                             f'went wrong. User id {user_id}, game id {game_id}, prediction '
+                                             f'{prediction}.')
                             else:
                                 balance -= amount
                                 msg = (f'Hi {ctx.author.name}, your bet of {amount} shazbucks on {winner} was '
@@ -835,7 +835,7 @@ def start_bot(conn):
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_quit(ctx):
-        logging.info(f'{ctx.author.display_name} requested bot shutdown.')
+        logger.info(f'{ctx.author.display_name} requested bot shutdown.')
         success = True
         await ctx.message.add_reaction(REACTIONS[success])
         await bot.close()
@@ -844,7 +844,7 @@ def start_bot(conn):
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_restart(ctx):
-        logging.info(f'{ctx.author.display_name} requested bot restart.')
+        logger.info(f'{ctx.author.display_name} requested bot restart.')
         success = True
         await ctx.message.add_reaction(REACTIONS[success])
         atexit.register(os.system, f'python3 {__file__}')
@@ -854,26 +854,26 @@ def start_bot(conn):
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_update(ctx):
-        logging.info(f'{ctx.author.display_name} requested bot update.')
+        logger.info(f'{ctx.author.display_name} requested bot update.')
         success = False
         repo = git.Repo('./')
         current_commit = repo.head.commit
         try:
             repo.remotes.origin.pull()
             if current_commit == repo.head.commit:
-                logging.info('No change or ahead of repo.')
+                logger.info('No change or ahead of repo.')
                 await ctx.author.create_dm()
                 await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, no update available!')
 
             else:
-                logging.info('Updated successfully.')
+                logger.info('Updated successfully.')
                 await ctx.author.create_dm()
                 await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, updated successfully!')
             success = True
         except git.GitCommandError as e:
-            logging.error('Git command did not complete correctly:')
+            logger.error('Git command did not complete correctly:')
             for line in str(e).split('\n'):
-                logging.error(f'\t{line}')
+                logger.error(f'\t{line}')
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, update did not complete successfully!')
         await ctx.message.add_reaction(REACTIONS[success])
@@ -882,7 +882,7 @@ def start_bot(conn):
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_update(ctx):
-        logging.info(f'{ctx.author.display_name} requested changelog.')
+        logger.info(f'{ctx.author.display_name} requested changelog.')
         success = False
         repo = git.Repo('./')
         try:
@@ -893,9 +893,9 @@ def start_bot(conn):
                 await ctx.author.dm_channel.send(f'{entry}')
             success = True
         except git.GitCommandError as e:
-            logging.error('Git command did not complete correctly:')
+            logger.error('Git command did not complete correctly:')
             for line in str(e).split('\n'):
-                logging.error(f'\t{line}')
+                logger.error(f'\t{line}')
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, error showing changelog!')
         await ctx.message.add_reaction(REACTIONS[success])
@@ -1071,8 +1071,8 @@ def start_bot(conn):
                                 create_transfer(conn, transfer)
                                 wager_result(conn, wager_id, WAGER_RESULT.Canceled)
                                 msg = (f'Hi {nick}. The result of game {game_id}, captained by '
-                                       f'{" and ".join(captains)}, was changed. Nobody took your bet. '
-                                       f'Your bet of {amount} shazbucks has been returned to you.')
+                                       f'{" and ".join(captains)}, was changed. Nobody took your bet or the game was '
+                                       f'canceled. Your bet of {amount} shazbucks has been returned to you.')
                                 await send_dm(user_id, msg)
                             elif prediction == new_status:
                                 win_amount = round(amount * ratio)
@@ -1163,10 +1163,14 @@ def start_bot(conn):
         # Log messages for debugging purposes
         if (message.author.id == BULLYBOT_DISCORD_ID
                 or message.author.id == DISCORD_ID):
-            logging.info(f'{message.author} wrote in #{message.channel} on '
-                         f'{message.guild}: {repr(message.content)}')
+            logger.debug(f'{message.author} wrote in #{message.channel} on '
+                         f'{message.guild}:')
+            for line in message.content.split('\n'):
+                logger.debug(f'\t{line}')
             for embed in message.embeds:
-                logging.info(f'{repr(embed.description)}')
+                logger.debug(f'\t{repr(embed.title)}')
+                for line in embed.description.split('\n'):
+                    logger.debug(f'\t\t{line}')
         # Parse BullyBot's messages for game info
         # (and own messages during development)
         if ((message.author.id == BULLYBOT_DISCORD_ID
@@ -1178,21 +1182,25 @@ def start_bot(conn):
                     description = message.embeds[0].description
                 if 'begun' in message.content:
                     queue = message.content.split("'")[1]
-                    capt_str = description.split('\n')[0]
-                    capt_str = capt_str.replace('**', '').replace('Captains:', '').replace('&', '')
+                    descr_lines = description.split('\n')
+                    captains_str = descr_lines[0].replace('**', '').replace('Captains:', '').replace('&', '')
                     pattern = '[<@!>]'
-                    capt_ids = re.sub(pattern, '', capt_str).split()
-                    teams = tuple(capt_ids)
-                    # captains = ()
-                    # for capt_id in capt_ids:
-                    #     user = await fetch_member(int(capt_id))
-                    #     if user:
-                    #         captains += (user.display_name,)
-                    #     else:
-                    #         captains += (capt_id,)
+                    capt_ids_str = re.sub(pattern, '', captains_str).split()
+                    players_nicks = []
+                    for capt_id in capt_ids_str:
+                        member = await fetch_member(int(capt_id))
+                        players_nicks.append(member.display_name)
+                    for nick in descr_lines[1].split(', '):
+                        players_nicks.append(nick)
+                        member = await query_members(nick)
+                        if member:
+                            capt_ids_str[0] += f' {member.id}'
+                        else:
+                            logger.error(f'Could not find discord id for player {nick}')
+                    teams = tuple(capt_ids_str)
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
-                    logging.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
+                    logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(players_nicks)}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
                     queue: str = message.content.split("'")[1]
@@ -1218,19 +1226,19 @@ def start_bot(conn):
                     cursor.execute(sql, game_values)
                     games = cursor.fetchall()
                     if not games:
-                        logging.error(f'Game picked in {queue} queue, but no game with Picking status and captains '
-                                      f'{" and ".join(captains)} in that queue!')
+                        logger.error(f'Game picked in {queue} queue, but no game with Picking status and captains '
+                                     f'{" and ".join(captains)} in that queue!')
                         game = (queue,) + teams
                         game_id = create_game(conn, game)
-                        logging.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
+                        logger.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
                     else:
                         if len(games) > 1:
-                            logging.error(f'Game picked in {queue} queue, but multiple games with Picking status and '
-                                          f'captains {" and ".join(captains)} in that queue! Selecting the last one '
-                                          f'and hoping for the best.')
+                            logger.error(f'Game picked in {queue} queue, but multiple games with Picking status and '
+                                         f'captains {" and ".join(captains)} in that queue! Selecting the last one '
+                                         f'and hoping for the best.')
                         game_id: int = games[-1][0]
                     pick_game(conn, game_id, teams)
-                    logging.info(f'Game {game_id} picked in the {queue} queue:{teams[0]} versus {teams[1]}')
+                    logger.info(f'Game {game_id} picked in the {queue} queue:{teams[0]} versus {teams[1]}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'cancelled' in message.content:
                     success = False
@@ -1239,14 +1247,14 @@ def start_bot(conn):
                     cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GAME_STATUS.InProgress,))
                     games = cursor.fetchall()
                     if not games:
-                        logging.error('Game cancelled, but no game with Picking status, not sure what game to cancel!')
+                        logger.error('Game cancelled, but no game with Picking status, not sure what game to cancel!')
                     elif len(games) > 1:
-                        logging.error('Game cancelled, but multiple games with Picking status, not sure what game to '
-                                      'cancel!')
+                        logger.error('Game cancelled, but multiple games with Picking status, not sure what game to '
+                                     'cancel!')
                     else:
                         game_id: int = games[0][0]
                         cancel_game(conn, game_id)
-                        logging.info(f'Game {game_id} cancelled, hopefully it was the right one!')
+                        logger.info(f'Game {game_id} cancelled, hopefully it was the right one!')
                         success = True
                     await message.add_reaction(REACTIONS[success])
                 elif 'finished' in message.content:
@@ -1271,8 +1279,8 @@ def start_bot(conn):
                     games = cursor.fetchall()
                     game_id = 0
                     if not games:
-                        logging.error(f'Game finished in {queue} queue, but no game with InProgress status and '
-                                      f'correct time in that queue.')
+                        logger.error(f'Game finished in {queue} queue, but no game with InProgress status and '
+                                     f'correct time in that queue.')
                     else:
                         game_id: int = games[0][0]
                         teams: Tuple[str, str] = games[0][2:4]
@@ -1298,8 +1306,8 @@ def start_bot(conn):
                             elif winner == captains[1]:
                                 game_result += GAME_STATUS.Team2
                             else:
-                                logging.error(f'Winner {winner} not found in game {game_id}: {teams[0]} '
-                                              f'versus {teams[1]}')
+                                logger.error(f'Winner {winner} not found in game {game_id}: {teams[0]} '
+                                             f'versus {teams[1]}')
                         # Save the result of the game and resolve all wagers
                         if game_result != 0:
                             finish_game(conn, game_id, game_result)
@@ -1416,13 +1424,13 @@ def start_bot(conn):
                 cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress, old_capt + '%', old_capt + '%'))
                 games = cursor.fetchall()
                 if not games:
-                    logging.error('Captain replaced, but no game with that captain and Picking or InProgress '
-                                  'status, not sure what game to replace a captain!')
+                    logger.error('Captain replaced, but no game with that captain and Picking or InProgress '
+                                 'status, not sure what game to replace a captain!')
                 else:
                     if len(games) > 1:
-                        logging.warning('Captain replaced, but multiple games with that captain and Picking or '
-                                        'InProgress status, not sure what game to replace a captain! Replacing captain '
-                                        'in the last game and hoping for the best')
+                        logger.warning('Captain replaced, but multiple games with that captain and Picking or '
+                                       'InProgress status, not sure what game to replace a captain! Replacing captain '
+                                       'in the last game and hoping for the best')
                     game_id: int = games[-1][0]
                     team1: str = games[-1][1]
                     team2: str = games[-1][2]
@@ -1446,13 +1454,13 @@ def start_bot(conn):
                 cursor.execute(sql, values)
                 games = cursor.fetchall()
                 if not games:
-                    logging.error('Player substituted, but no game with that player and InProgress '
-                                  'status, not sure what game to substitute the player!')
+                    logger.error('Player substituted, but no game with that player and InProgress '
+                                 'status, not sure what game to substitute the player!')
                 else:
                     if len(games) > 1:
-                        logging.warning('Player substituted, but multiple games with that player and InProgress '
-                                        'status, not sure what game to substitute the player! Substituting the player '
-                                        'in the last game and hoping for the best')
+                        logger.warning('Player substituted, but multiple games with that player and InProgress '
+                                       'status, not sure what game to substitute the player! Substituting the player '
+                                       'in the last game and hoping for the best')
                     game_id: int = games[-1][0]
                     team1: str = games[-1][1]
                     team2: str = games[-1][2]
@@ -1483,13 +1491,13 @@ def start_bot(conn):
                 cursor.execute(sql, values)  # Don't care about picking
                 games = cursor.fetchall()
                 if not games:
-                    logging.error('Players swapped, but no game with those players and InProgress '
-                                  'status, not sure what game to swap the players!')
+                    logger.error('Players swapped, but no game with those players and InProgress '
+                                 'status, not sure what game to swap the players!')
                 else:
                     if len(games) > 1:
-                        logging.warning('Players swapped, but multiple games with those players and InProgress '
-                                        'status, not sure what game to swap the players! Swapping the players '
-                                        'in the last game and hoping for the best')
+                        logger.warning('Players swapped, but multiple games with those players and InProgress '
+                                       'status, not sure what game to swap the players! Swapping the players '
+                                       'in the last game and hoping for the best')
                     game_id: int = games[-1][0]
                     team1: str = games[-1][1]
                     team2: str = games[-1][2]
@@ -1509,19 +1517,45 @@ def start_bot(conn):
     @bot.event
     async def on_command_error(ctx, error):
         if isinstance(error, commands.errors.CommandNotFound):
-            logging.debug(f'({ctx.author.display_name}) {ctx.message.content}: {error}')
+            logger.debug(f'({ctx.author.display_name}) {ctx.message.content}: {error}')
         elif isinstance(error, commands.errors.CommandInvokeError):
-            logging.error(f'({ctx.author.display_name}) {ctx.message.content}: {error}')
+            logger.error(f'({ctx.author.display_name}) {ctx.message.content}: {error}')
 
     bot.run(TOKEN)
 
 
 # Main
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-log",
+        "--log",
+        default="info",
+        help=(
+            "Provide logging level. "
+            "Example --log debug', default='warning'"
+        ),
+    )
+
+    options = parser.parse_args()
+    levels = {
+        'critical': logging.CRITICAL,
+        'error': logging.ERROR,
+        'warn': logging.WARNING,
+        'warning': logging.WARNING,
+        'info': logging.INFO,
+        'debug': logging.DEBUG
+    }
+    level = levels.get(options.log.lower())
+    if level is None:
+        raise ValueError(
+            f"log level given: {options.log}"
+            f" -- must be one of: {' | '.join(levels.keys())}")
     logging.basicConfig(format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
-                        level=logging.INFO)  # INFO
+                        level=level)
+    logger = logging.getLogger(__name__)
     db_conn = sqlite3.connect(DATABASE)
     init_db(db_conn)
     start_bot(db_conn)
     db_conn.close()
-    logging.info('Database closed.')
+    logger.info('Database closed.')

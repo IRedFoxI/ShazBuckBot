@@ -1186,60 +1186,61 @@ def start_bot(conn):
                     descr_lines = description.split('\n')
                     captains_str = descr_lines[0].replace('**', '').replace('Captains:', '').replace('&', '')
                     pattern = '[<@!>]'
-                    capt_ids_str = re.sub(pattern, '', captains_str).split()
-                    players_nicks = []
-                    for capt_id in capt_ids_str:
+                    player_ids_strs = re.sub(pattern, '', captains_str).split()
+                    player_nicks = []
+                    for capt_id in player_ids_strs:
                         member = await fetch_member(int(capt_id))
-                        players_nicks.append(member.display_name)
+                        player_nicks.append(member.display_name)
                     for nick in descr_lines[1].split(', '):
-                        players_nicks.append(nick)
+                        player_nicks.append(nick)
                         member = await query_members(nick)
                         if member:
-                            capt_ids_str[0] += f' {member.id}'
+                            player_ids_strs[0] += f' {member.id}'
                         else:
                             logger.error(f'Could not find discord id for player {nick}')
-                    teams = tuple(capt_ids_str)
+                    teams = tuple(player_ids_strs)
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
-                    logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(players_nicks)}')
+                    logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
                     queue: str = message.content.split("'")[1]
-                    teams_strings = description.split('\n')[1:3]
-                    # teams_strings = [team_str.replace(':', ',').split(', ') for team_str in teams_strings]
+                    teams_strs = description.split('\n')[1:3]
+                    capt_nicks = tuple([team_str.split(':')[0] for team_str in teams_strs])
                     teams: Tuple[str, ...] = ()
-                    for team_str in teams_strings:
-                        ids = []
+                    for team_str in teams_strs:
+                        ids_strs = []
                         players = team_str.replace(':', ',').split(', ')
-                        for player in players:
-                            member = await query_members(player)
+                        for nick in players:
+                            member = await query_members(nick)
                             if member:
-                                ids.append(str(member.id))
+                                ids_strs.append(str(member.id))
                             else:
-                                ids.append(player)  # TODO: write a PANIC message to log instead
-                        teams += (" ".join(ids),)
-                    captains = tuple([team.split(' ')[0] for team in teams])
-                    # Find the game that was just picked
-                    game_values = (queue, GAME_STATUS.Picking) + captains + (captains[1], captains[0])
-                    sql = ''' SELECT id FROM games WHERE queue = ? AND status = ? 
-                              AND ((team1 = ? AND team2 = ?) OR (team1 = ? AND team2 = ?)) '''
+                                logger.error(f'Could not find discord id for player {nick}')
+                        teams += (" ".join(ids_strs),)
+                    capt_ids = tuple([team.split(' ')[0] for team in teams])
+                    # Find the game that was just picked or repicked
+                    search_strs = (capt_ids[0] + '%', capt_ids[1] + '%', capt_ids[1] + '%', capt_ids[0] + '%')
+                    game_values = (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress) + search_strs
+                    sql = ''' SELECT id FROM games WHERE queue = ? AND (status = ? OR status = ?) 
+                              AND ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?)) '''
                     cursor = conn.cursor()
                     cursor.execute(sql, game_values)
                     games = cursor.fetchall()
                     if not games:
-                        logger.error(f'Game picked in {queue} queue, but no game with Picking status and captains '
-                                     f'{" and ".join(captains)} in that queue!')
+                        logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status and '
+                                     f'captains {" and ".join(capt_nicks)} in that queue! ({", ".join(capt_ids)})')
                         game = (queue,) + teams
                         game_id = create_game(conn, game)
-                        logger.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
+                        logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(teams_strs)}')
                     else:
                         if len(games) > 1:
-                            logger.error(f'Game picked in {queue} queue, but multiple games with Picking status and '
-                                         f'captains {" and ".join(captains)} in that queue! Selecting the last one '
-                                         f'and hoping for the best.')
+                            logger.error(f'Game picked in {queue} queue, but multiple games with Picking or InProgress '
+                                         f'status and captains {" and ".join(capt_nicks)} in that queue! Selecting the '
+                                         f'last one and hoping for the best.')
                         game_id: int = games[-1][0]
                     pick_game(conn, game_id, teams)
-                    logger.info(f'Game {game_id} picked in the {queue} queue:{teams[0]} versus {teams[1]}')
+                    logger.info(f'Game {game_id} picked in the {queue} queue:{" versus ".join(teams_strs)}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'cancelled' in message.content:
                     success = False

@@ -31,7 +31,7 @@ BOT_CHANNEL_ID = config['bot_channel_id']
 GAME_STATUS = IntEnum('Game_Status', 'Picking Cancelled InProgress Team1 Team2 Tied')
 WAGER_RESULT = IntEnum('Wager_Result', 'InProgress Won Lost Canceled')
 DM_TIME_TO_WAIT = 0.21  # Seconds
-DURATION_TOLERANCE = 60  # Minutes
+DURATION_TOLERANCE = 5  # Minutes
 REACTIONS = ["👎", "👍"]
 
 
@@ -1186,38 +1186,38 @@ def start_bot(conn):
                     descr_lines = description.split('\n')
                     captains_str = descr_lines[0].replace('**', '').replace('Captains:', '').replace('&', '')
                     pattern = '[<@!>]'
-                    player_ids_strs = re.sub(pattern, '', captains_str).split()
+                    player_id_strs = re.sub(pattern, '', captains_str).split()
                     player_nicks = []
-                    for capt_id in player_ids_strs:
+                    for capt_id in player_id_strs:
                         member = await fetch_member(int(capt_id))
                         player_nicks.append(member.display_name)
                     for nick in descr_lines[1].split(', '):
                         player_nicks.append(nick)
                         member = await query_members(nick)
                         if member:
-                            player_ids_strs[0] += f' {member.id}'
+                            player_id_strs[0] += f' {member.id}'
                         else:
                             logger.error(f'Could not find discord id for player {nick}')
-                    teams = tuple(player_ids_strs)
+                    teams = tuple(player_id_strs)
                     game = (queue,) + teams
                     game_id = create_game(conn, game)
                     logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'picked' in message.content:
                     queue: str = message.content.split("'")[1]
-                    teams_strs = description.split('\n')[1:3]
-                    capt_nicks = tuple([team_str.split(':')[0] for team_str in teams_strs])
+                    team_strs = description.split('\n')[1:3]
+                    capt_nicks = tuple([team_str.split(':')[0] for team_str in team_strs])
                     teams: Tuple[str, ...] = ()
-                    for team_str in teams_strs:
-                        ids_strs = []
+                    for team_str in team_strs:
+                        id_strs = []
                         players = team_str.replace(':', ',').split(', ')
                         for nick in players:
                             member = await query_members(nick)
                             if member:
-                                ids_strs.append(str(member.id))
+                                id_strs.append(str(member.id))
                             else:
                                 logger.error(f'Could not find discord id for player {nick}')
-                        teams += (" ".join(ids_strs),)
+                        teams += (" ".join(id_strs),)
                     capt_ids = tuple([team.split(' ')[0] for team in teams])
                     # Find the game that was just picked or repicked
                     search_strs = (capt_ids[0] + '%', capt_ids[1] + '%', capt_ids[1] + '%', capt_ids[0] + '%')
@@ -1232,7 +1232,7 @@ def start_bot(conn):
                                      f'captains {" and ".join(capt_nicks)} in that queue! ({", ".join(capt_ids)})')
                         game = (queue,) + teams
                         game_id = create_game(conn, game)
-                        logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(teams_strs)}')
+                        logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
                     else:
                         if len(games) > 1:
                             logger.error(f'Game picked in {queue} queue, but multiple games with Picking or InProgress '
@@ -1240,7 +1240,7 @@ def start_bot(conn):
                                          f'last one and hoping for the best.')
                         game_id: int = games[-1][0]
                     pick_game(conn, game_id, teams)
-                    logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(teams_strs)}')
+                    logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'cancelled' in message.content:
                     success = False
@@ -1270,33 +1270,43 @@ def start_bot(conn):
                     no_winners = 0
                     payout = 0
                     winners_msg = f''
+                    game_id = 0
                     # Find the game that just finished
-                    game_values = (queue, GAME_STATUS.InProgress, duration, DURATION_TOLERANCE)
-                    sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
-                              * 24 * 60) AS INTEGER)), team1, team2 
-                              FROM games 
-                              WHERE queue = ? AND status = ? AND ABS(CAST (((julianday('now') 
-                              - julianday(start_time, 'unixepoch')) * 24 * 60) AS INTEGER)) - ? <= ? '''
+                    if 'Tied' in result:
+                        game_values = (queue, GAME_STATUS.InProgress, duration, DURATION_TOLERANCE)
+                        sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
+                                  * 24 * 60) AS INTEGER)), team1, team2 
+                                  FROM games 
+                                  WHERE queue = ? AND status = ? AND ABS(CAST (((julianday('now') 
+                                  - julianday(start_time, 'unixepoch')) * 24 * 60) AS INTEGER)) - ? <= ? '''
+                    else:
+                        winner_nick = " ".join(result.split(' ')[2:])
+                        winner_id_str = str((await query_members(winner_nick)).id)
+                        game_values = (queue, GAME_STATUS.InProgress, winner_id_str + '%', winner_id_str + '%')
+                        sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
+                                  * 24 * 60) AS INTEGER)),team1, team2 FROM games 
+                                  WHERE queue = ? AND status = ? AND (team1 LIKE ? OR team2 LIKE ?) '''
                     cursor = conn.cursor()
                     cursor.execute(sql, game_values)
                     games = cursor.fetchall()
-                    game_id = 0
                     if not games:
                         logger.error(f'Game finished in {queue} queue, but no game with InProgress status and '
                                      f'correct time in that queue.')
                     else:
                         game_id: int = games[0][0]
                         teams: Tuple[str, str] = games[0][2:4]
-                        captains = [team.split()[0] for team in teams]
+                        capt_id_strs = [team.split()[0] for team in teams]
+                        # If a tied game and multiple games running in the same queue,
+                        # select the game which duration matches most closely
                         if len(games) > 1:
                             duration_offsets: List[int] = [game[1] for game in games]
                             _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
                             game_id = games[idx][0]
                             teams = games[idx][2:4]
-                            captains = [team.split()[0] for team in teams]
+                            capt_id_strs = [team.split()[0] for team in teams]
                         # If discord id convert to nick
-                        captains = [(await fetch_member(int(capt))).display_name if capt.isdigit else capt
-                                    for capt in captains]
+                        capt_nicks = [(await fetch_member(int(capt))).display_name if capt.isdigit else capt
+                                    for capt in capt_id_strs]
                         # Establish the result of the game
                         game_result = 0
                         if 'Tie' in result:

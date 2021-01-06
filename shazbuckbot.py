@@ -1240,16 +1240,17 @@ def start_bot(conn):
                                          f'last one and hoping for the best.')
                         game_id: int = games[-1][0]
                     pick_game(conn, game_id, teams)
-                    logger.info(f'Game {game_id} picked in the {queue} queue:{" versus ".join(teams_strs)}')
+                    logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(teams_strs)}')
                     await message.add_reaction(REACTIONS[True])
                 elif 'cancelled' in message.content:
                     success = False
                     # Find the game that was just cancelled
                     cursor = conn.cursor()
-                    cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GAME_STATUS.InProgress,))
+                    cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GAME_STATUS.Picking, ))
                     games = cursor.fetchall()
                     if not games:
-                        logger.error('Game cancelled, but no game with Picking status, not sure what game to cancel!')
+                        logger.error('Game cancelled, but no game with Picking status, '
+                                     'not sure what game to cancel!')
                     elif len(games) > 1:
                         logger.error('Game cancelled, but multiple games with Picking status, not sure what game to '
                                      'cancel!')

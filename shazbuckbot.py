@@ -1158,6 +1158,161 @@ def start_bot(conn):
         embed_msg = discord.Embed(description=description, color=0x00ff00)
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
+    async def game_begun(message):
+        queue = message.content.split("'")[1]
+        description = ''
+        if message.embeds:
+            description = message.embeds[0].description
+        descr_lines = description.split('\n')
+        captains_str = descr_lines[0].replace('**', '').replace('Captains:', '').replace('&', '')
+        pattern = '[<@!>]'
+        player_id_strs = re.sub(pattern, '', captains_str).split()
+        player_nicks = []
+        for capt_id in player_id_strs:
+            member = await fetch_member(int(capt_id))
+            player_nicks.append(member.display_name)
+        for nick in descr_lines[1].split(', '):
+            player_nicks.append(nick)
+            player = await query_members(nick)
+            if player:
+                player_id_strs[0] += f' {player.id}'
+            else:
+                logger.error(f'Could not find discord id for player {nick}')
+        team_id_strs = tuple(player_id_strs)
+        game = (queue,) + team_id_strs
+        game_id = create_game(conn, game)
+        logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
+        await message.add_reaction(REACTIONS[True])
+
+    async def game_picked(message):
+        queue = message.content.split("'")[1]
+        description = ''
+        if message.embeds:
+            description = message.embeds[0].description
+        team_strs = description.split('\n')[1:3]
+        capt_nicks = tuple([team_str.split(':')[0] for team_str in team_strs])
+        team_id_strs: Tuple[str, ...] = ()
+        for team_str in team_strs:
+            id_strs = []
+            players = team_str.replace(':', ',').split(', ')
+            for nick in players:
+                member = await query_members(nick)
+                if member:
+                    id_strs.append(str(member.id))
+                else:
+                    logger.error(f'Could not find discord id for player {nick}')
+            team_id_strs += (" ".join(id_strs),)
+        capt_ids = tuple([team.split(' ')[0] for team in team_id_strs])
+        # Find the game that was just picked or repicked
+        search_strs = (capt_ids[0] + '%', capt_ids[1] + '%', capt_ids[1] + '%', capt_ids[0] + '%')
+        game_values = (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress) + search_strs
+        sql = ''' SELECT id FROM games WHERE queue = ? AND (status = ? OR status = ?) 
+                  AND ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?)) '''
+        cursor = conn.cursor()
+        cursor.execute(sql, game_values)
+        games = cursor.fetchall()
+        if not games:
+            logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status and '
+                         f'captains {" and ".join(capt_nicks)} in that queue! ({", ".join(capt_ids)})')
+            game = (queue,) + team_id_strs
+            game_id = create_game(conn, game)
+            logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
+        else:
+            if len(games) > 1:
+                logger.error(f'Game picked in {queue} queue, but multiple games with Picking or InProgress '
+                             f'status and captains {" and ".join(capt_nicks)} in that queue! Selecting the '
+                             f'last one and hoping for the best.')
+            game_id: int = games[-1][0]
+        pick_game(conn, game_id, team_id_strs)
+        logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
+        await message.add_reaction(REACTIONS[True])
+
+    async def game_cancelled(message):
+        success = False
+        # Find the game that was just cancelled
+        cursor = conn.cursor()
+        cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GAME_STATUS.Picking,))
+        games = cursor.fetchall()
+        if not games:
+            logger.error('Game cancelled, but no game with Picking status, not sure what game to cancel!')
+        elif len(games) > 1:
+            logger.error('Game cancelled, but multiple games with Picking status, not sure what game to cancel!')
+        else:
+            game_id: int = games[0][0]
+            cancel_game(conn, game_id)
+            logger.info(f'Game {game_id} cancelled, hopefully it was the right one!')
+            success = True
+        await message.add_reaction(REACTIONS[success])
+
+    async def game_finished(message):
+        queue = message.content.split("'")[1]
+        description = ''
+        if message.embeds:
+            description = message.embeds[0].description
+        [result, duration] = description.split('\n')
+        duration = int(duration.split(' ')[1])
+        game_result = GAME_STATUS.Tied if 'Tied' in result else None
+        winner_nick = ''
+        winner_id = 0
+        # Find the game that just finished
+        game_id = 0
+        if game_result == GAME_STATUS.Tied:
+            game_values = (queue, GAME_STATUS.InProgress, duration, DURATION_TOLERANCE)
+            sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
+                      * 24 * 60) AS INTEGER)), team1, team2 
+                      FROM games 
+                      WHERE queue = ? AND status = ? AND ABS(CAST (((julianday('now') 
+                      - julianday(start_time, 'unixepoch')) * 24 * 60) AS INTEGER)) - ? <= ? '''
+        else:
+            winner_nick = " ".join(result.split(' ')[2:])
+            winner_id = (await query_members(winner_nick)).id
+            winner_id_str = str(winner_id)
+            game_values = (queue, GAME_STATUS.InProgress, winner_id_str + '%', winner_id_str + '%')
+            sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
+                      * 24 * 60) AS INTEGER)),team1, team2 FROM games 
+                      WHERE queue = ? AND status = ? AND (team1 LIKE ? OR team2 LIKE ?) '''
+        cursor = conn.cursor()
+        cursor.execute(sql, game_values)
+        games = cursor.fetchall()
+        if not games:
+            if game_result == GAME_STATUS.Tied:
+                logger.error(f'Game finished with a tie in {queue} queue, but no game with InProgress status and '
+                             f'correct time in that queue.')
+            else:
+                logger.error(f'Game finished with a win for {winner_nick} in {queue} queue, but no game with '
+                             f'InProgress status and that captain in that queue.')
+        else:
+            game_id: int = games[0][0]
+            team_id_strs: Tuple[str, str] = games[0][2:4]
+            # If multiple games running in the same queue match, select the game which duration matches most closely
+            if len(games) > 1:
+                duration_offsets: List[int] = [game[1] for game in games]
+                _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
+                game_id: int = games[idx][0]
+                team_id_strs: Tuple[str, str] = games[idx][2:4]
+            # Create a list of discord members per team
+            teams = ()
+            for team_str in team_id_strs:
+                team = []
+                for discord_id_str in team_str.split():
+                    if discord_id_str.isdigit():
+                        player = await fetch_member(int(discord_id_str))
+                        team.append(player)
+                teams += (team,)
+            capt_ids = (teams[0][0].id, teams[1][0].id)
+            capt_nicks = (teams[0][0].display_name, teams[1][0].discplay_name)
+            # Establish result if not tied
+            if game_result != GAME_STATUS.Tied:
+                if winner_id == capt_ids[0]:
+                    game_result += GAME_STATUS.Team1
+                elif winner_id == capt_ids[1]:
+                    game_result += GAME_STATUS.Team2
+                else:
+                    logger.error(f'Winner {winner_nick} ({winner_id}) not found in game {game_id}: {capt_nicks[0]} '
+                                 f'versus {capt_nicks[1]}')
+            if game_result:
+                pass  # TODO: write game result to db; resolve wagers; pay participants
+
     @bot.event
     async def on_message(message):
         # Log messages for debugging purposes
@@ -1178,88 +1333,12 @@ def start_bot(conn):
              or message.author.id == DISCORD_ID)  # TODO: Remove this line
                 and message.channel.id == PUG_CHANNEL_ID):
             if 'Game' in message.content:
-                description = ''
-                if message.embeds:
-                    description = message.embeds[0].description
                 if 'begun' in message.content:
-                    queue = message.content.split("'")[1]
-                    descr_lines = description.split('\n')
-                    captains_str = descr_lines[0].replace('**', '').replace('Captains:', '').replace('&', '')
-                    pattern = '[<@!>]'
-                    player_id_strs = re.sub(pattern, '', captains_str).split()
-                    player_nicks = []
-                    for capt_id in player_id_strs:
-                        member = await fetch_member(int(capt_id))
-                        player_nicks.append(member.display_name)
-                    for nick in descr_lines[1].split(', '):
-                        player_nicks.append(nick)
-                        player = await query_members(nick)
-                        if player:
-                            player_id_strs[0] += f' {player.id}'
-                        else:
-                            logger.error(f'Could not find discord id for player {nick}')
-                    team_id_strs = tuple(player_id_strs)
-                    game = (queue,) + team_id_strs
-                    game_id = create_game(conn, game)
-                    logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
-                    await message.add_reaction(REACTIONS[True])
+                    await game_begun(message)
                 elif 'picked' in message.content:
-                    queue: str = message.content.split("'")[1]
-                    team_strs = description.split('\n')[1:3]
-                    capt_nicks = tuple([team_str.split(':')[0] for team_str in team_strs])
-                    team_id_strs: Tuple[str, ...] = ()
-                    for team_str in team_strs:
-                        id_strs = []
-                        players = team_str.replace(':', ',').split(', ')
-                        for nick in players:
-                            member = await query_members(nick)
-                            if member:
-                                id_strs.append(str(member.id))
-                            else:
-                                logger.error(f'Could not find discord id for player {nick}')
-                        team_id_strs += (" ".join(id_strs),)
-                    capt_ids = tuple([team.split(' ')[0] for team in team_id_strs])
-                    # Find the game that was just picked or repicked
-                    search_strs = (capt_ids[0] + '%', capt_ids[1] + '%', capt_ids[1] + '%', capt_ids[0] + '%')
-                    game_values = (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress) + search_strs
-                    sql = ''' SELECT id FROM games WHERE queue = ? AND (status = ? OR status = ?) 
-                              AND ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?)) '''
-                    cursor = conn.cursor()
-                    cursor.execute(sql, game_values)
-                    games = cursor.fetchall()
-                    if not games:
-                        logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status and '
-                                     f'captains {" and ".join(capt_nicks)} in that queue! ({", ".join(capt_ids)})')
-                        game = (queue,) + team_id_strs
-                        game_id = create_game(conn, game)
-                        logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
-                    else:
-                        if len(games) > 1:
-                            logger.error(f'Game picked in {queue} queue, but multiple games with Picking or InProgress '
-                                         f'status and captains {" and ".join(capt_nicks)} in that queue! Selecting the '
-                                         f'last one and hoping for the best.')
-                        game_id: int = games[-1][0]
-                    pick_game(conn, game_id, team_id_strs)
-                    logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
-                    await message.add_reaction(REACTIONS[True])
+                    await game_picked(message)
                 elif 'cancelled' in message.content:
-                    success = False
-                    # Find the game that was just cancelled
-                    cursor = conn.cursor()
-                    cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GAME_STATUS.Picking, ))
-                    games = cursor.fetchall()
-                    if not games:
-                        logger.error('Game cancelled, but no game with Picking status, '
-                                     'not sure what game to cancel!')
-                    elif len(games) > 1:
-                        logger.error('Game cancelled, but multiple games with Picking status, not sure what game to '
-                                     'cancel!')
-                    else:
-                        game_id: int = games[0][0]
-                        cancel_game(conn, game_id)
-                        logger.info(f'Game {game_id} cancelled, hopefully it was the right one!')
-                        success = True
-                    await message.add_reaction(REACTIONS[success])
+                    await game_cancelled(message)
                 elif 'finished' in message.content:
                     queue = message.content.split("'")[1]
                     [result, duration] = description.split('\n')

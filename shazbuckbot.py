@@ -1211,9 +1211,10 @@ def start_bot(conn):
                     teams: Tuple[str, ...] = tuple(description.split('\n')[1:3])
                     captains = tuple([team.split(':')[0] for team in teams])
                     # Find the game that was just picked
-                    game_values = (queue, GAME_STATUS.Picking) + captains + (captains[1], captains[0])
-                    sql = ''' SELECT id FROM games WHERE queue = ? AND status = ? 
-                              AND ((team1 = ? AND team2 = ?) OR (team1 = ? AND team2 = ?)) '''
+                    game_values = (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress,
+                                   captains[0] + '%', captains[1] + '%', captains[1] + '%', captains[0] + '%')
+                    sql = ''' SELECT id, status FROM games WHERE queue = ? AND (status = ? OR status = ?)
+                              AND ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?)) '''
                     cursor = conn.cursor()
                     cursor.execute(sql, game_values)
                     games = cursor.fetchall()
@@ -1222,6 +1223,7 @@ def start_bot(conn):
                                      f'{" and ".join(captains)} in that queue!')
                         game = (queue,) + teams
                         game_id = create_game(conn, game)
+                        game_status = GAME_STATUS.Picking
                         logger.info(f'Game {game_id} created in the {queue} queue: {teams[0]} versus {teams[1]}')
                     else:
                         if len(games) > 1:
@@ -1229,6 +1231,9 @@ def start_bot(conn):
                                          f'captains {" and ".join(captains)} in that queue! Selecting the last one '
                                          f'and hoping for the best.')
                         game_id: int = games[-1][0]
+                        game_status: int = games[-1][1]
+                    if game_status == GAME_STATUS.InProgress:
+                        await cancel_wagers(game_id, 'a repick')
                     pick_game(conn, game_id, teams)
                     logger.info(f'Game {game_id} picked in the {queue} queue:{teams[0]} versus {teams[1]}')
                     await message.add_reaction(REACTIONS[True])

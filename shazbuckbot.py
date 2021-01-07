@@ -1211,9 +1211,9 @@ def start_bot(conn):
             team_id_strs += (" ".join(id_strs),)
         capt_ids = tuple([team.split(' ')[0] for team in team_id_strs])
         # Find the game that was just picked or repicked
-        search_strs = (capt_ids[0] + '%', capt_ids[1] + '%', capt_ids[1] + '%', capt_ids[0] + '%')
-        game_values = (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress) + search_strs
-        sql = ''' SELECT id FROM games WHERE queue = ? AND (status = ? OR status = ?) 
+        game_values = (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress,
+                       capt_ids[0] + '%', capt_ids[1] + '%', capt_ids[1] + '%', capt_ids[0] + '%')
+        sql = ''' SELECT id, status FROM games WHERE queue = ? AND (status = ? OR status = ?)
                   AND ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?)) '''
         cursor = conn.cursor()
         cursor.execute(sql, game_values)
@@ -1223,6 +1223,7 @@ def start_bot(conn):
                          f'captains {" and ".join(capt_nicks)} in that queue! ({", ".join(capt_ids)})')
             game = (queue,) + team_id_strs
             game_id = create_game(conn, game)
+            game_status = GAME_STATUS.Picking
             logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
         else:
             if len(games) > 1:
@@ -1230,6 +1231,9 @@ def start_bot(conn):
                              f'status and captains {" and ".join(capt_nicks)} in that queue! Selecting the '
                              f'last one and hoping for the best.')
             game_id: int = games[-1][0]
+            game_status: int = games[-1][1]
+        if game_status == GAME_STATUS.InProgress:
+            await cancel_wagers(game_id, 'a repick')
         pick_game(conn, game_id, team_id_strs)
         logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
         await message.add_reaction(REACTIONS[True])

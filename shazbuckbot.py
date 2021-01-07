@@ -644,14 +644,14 @@ def start_bot(conn):
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            sql = ''' SELECT id, team1, team2, 
-                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER) 
-                      FROM games WHERE status = ? '''
+            sql = ''' SELECT id, team1, team2, queue, status, 
+                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER)
+                      FROM games WHERE status = ? OR status = ?'''
             cursor = conn.cursor()
-            cursor.execute(sql, (GAME_STATUS.InProgress,))
+            cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress))
             games = cursor.fetchall()
             if not games:
-                msg = f'Hi {nick}. No games are running. Please wait until teams are picked.'
+                msg = f'Hi {nick}. No games are running.'
                 await send_dm(user_id, msg)
             else:
                 show_str = ''
@@ -659,7 +659,9 @@ def start_bot(conn):
                     game_id = game[0]
                     teams = game[1:3]
                     captains = [team.split(':')[0] for team in teams]
-                    run_time = game[3]
+                    queue = game[3]
+                    game_status = game[4]
+                    run_time = game[5]
                     cursor = conn.cursor()
                     sql = ''' SELECT prediction, amount FROM wagers WHERE game_id = ? AND result = ? '''
                     cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
@@ -669,14 +671,19 @@ def start_bot(conn):
                         prediction = GAME_STATUS(wager[0])
                         amount: int = wager[1]
                         total_amounts[prediction] += amount
-                    if run_time <= BET_WINDOW:
-                        show_str += (f'Game {game_id} ({BET_WINDOW - run_time} minutes left to bet): '
-                                     f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
-                                     f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
-                    else:
-                        show_str += (f'Game {game_id} (Betting closed): '
-                                     f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
-                                     f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
+                    if game_status == GAME_STATUS.Picking:
+                        show_str += (f'{queue}: Game {game_id} (Picking): '
+                                     f'{captains[0]} vs '
+                                     f'{captains[1]}\n')
+                    elif game_status == GAME_STATUS.InProgress:
+                        if run_time <= BET_WINDOW:
+                            show_str += (f'{queue}: Game {game_id} ({BET_WINDOW - run_time} minutes left to bet): '
+                                         f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
+                                         f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
+                        else:
+                            show_str += (f'{queue}: Game {game_id} (Betting closed): '
+                                         f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
+                                         f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
                 if show_str:
                     await ctx.send(show_str)
                     success = True

@@ -1165,7 +1165,7 @@ def start_bot(conn):
         embed_msg = discord.Embed(description=description, color=0x00ff00)
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
 
-    async def game_begun(message):
+    async def game_begun(message: discord.Message):
         queue = message.content.split("'")[1]
         description = ''
         if message.embeds:
@@ -1191,7 +1191,7 @@ def start_bot(conn):
         logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
         await message.add_reaction(REACTIONS[True])
 
-    async def game_picked(message):
+    async def game_picked(message: discord.Message):
         queue = message.content.split("'")[1]
         description = ''
         if message.embeds:
@@ -1238,7 +1238,7 @@ def start_bot(conn):
         logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
         await message.add_reaction(REACTIONS[True])
 
-    async def game_cancelled(message):
+    async def game_cancelled(message: discord.Message):
         success = False
         # Find the game that was just cancelled
         cursor = conn.cursor()
@@ -1255,7 +1255,7 @@ def start_bot(conn):
             success = True
         await message.add_reaction(REACTIONS[success])
 
-    async def game_finished(message):
+    async def game_finished(message: discord.Message):
         queue = message.content.split("'")[1]
         description = ''
         if message.embeds:
@@ -1310,8 +1310,9 @@ def start_bot(conn):
                         player = await fetch_member(int(discord_id_str))
                         team.append(player)
                 teams += (team,)
+            # Cache captain info
             capt_ids = (teams[0][0].id, teams[1][0].id)
-            capt_nicks = (teams[0][0].display_name, teams[1][0].discplay_name)
+            capt_nicks = (teams[0][0].display_name, teams[1][0].display_name)
             # Establish result if not tied
             if game_result != GAME_STATUS.Tied:
                 if winner_id == capt_ids[0]:
@@ -1322,7 +1323,123 @@ def start_bot(conn):
                     logger.error(f'Winner {winner_nick} ({winner_id}) not found in game {game_id}: {capt_nicks[0]} '
                                  f'versus {capt_nicks[1]}')
             if game_result:
-                pass  # TODO: write game result to db; resolve wagers; pay participants
+                # TODO: write game result to db; resolve wagers; pay participants; summary message to channel
+                finish_game(conn, game_id, game_result)
+                await resolve_wagers(game_id, game_result, teams)
+                await pay_players(teams)
+
+    async def resolve_wagers(game_id, game_result, teams, change=False):
+        """Resolve wagers placed on a game based on its outcome
+
+        :param int game_id: ID of the game
+        :param int game_result: Result of the game
+        :param Tuple[List[discord.Member], List[discord.Member]] teams: Tuple of List per team of discord.Member
+        :param bool change: Boolean indicating whether the result of the game is being changed
+        """
+        # Initialize parameters
+        total_amounts = {}
+        ratio = 0
+        no_winners = 0
+        payout = 0
+        winners_msg = f''
+        # Cache captain info
+        capt_nicks = (teams[0][0].display_name, teams[1][0].display_name)
+        # Find wagers on this game
+        sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id FROM users, wagers 
+                  WHERE game_id = ? AND users.id = wagers.user_id AND result = ? '''
+        cursor = conn.cursor()
+        cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
+        wagers = cursor.fetchall()
+        # Calculate the total amounts bet on each team
+        for wager in wagers:
+            prediction = GAME_STATUS(wager[2]).name
+            amount: int = wager[3]
+            if prediction in total_amounts:
+                total_amounts[prediction] += amount
+            else:
+                total_amounts[prediction] = amount
+        # If bets are placed on both sides, calculate the ratio between them
+        if GAME_STATUS.Team1.name in total_amounts and GAME_STATUS.Team2.name in total_amounts:
+            ta_t1 = total_amounts[GAME_STATUS.Team1.name]
+            ta_t2 = total_amounts[GAME_STATUS.Team2.name]
+            if game_result == GAME_STATUS.Team1:
+                ratio = (ta_t1 + ta_t2) / ta_t1
+            if game_result == GAME_STATUS.Team2:
+                ratio = (ta_t1 + ta_t2) / ta_t2
+        # Resolve each individual bet
+        for wager in wagers:
+            wager_id: int = wager[0]
+            user_id: int = wager[1]
+            prediction: int = wager[2]
+            amount: int = wager[3]
+            nick: str = wager[4]
+            discord_id: int = wager[5]
+            if game_result == GAME_STATUS.Tied:
+                transfer = (bot_user_id, user_id, amount)
+                create_transfer(conn, transfer)
+                wager_result(conn, wager_id, WAGER_RESULT.Canceled)
+                msg = (f'Hi {nick}. The game captained by {" and ".join(capt_nicks)} resulted '
+                       f'in a tie. Your bet of {amount} shazbucks has been returned to you.')
+                await send_dm(user_id, msg)
+            elif ratio == 0:
+                transfer = (bot_user_id, user_id, amount)
+                create_transfer(conn, transfer)
+                wager_result(conn, wager_id, WAGER_RESULT.Canceled)
+                msg = (f'Hi {nick}. Nobody took your bet on the game captained by '
+                       f'{" and ".join(capt_nicks)}. Your bet of {amount} shazbucks has been '
+                       f'returned to you.')
+                await send_dm(user_id, msg)
+            elif prediction == game_result:
+                win_amount = round(amount * ratio)
+                payout += win_amount
+                transfer = (bot_user_id, user_id, win_amount)
+                create_transfer(conn, transfer)
+                wager_result(conn, wager_id, WAGER_RESULT.Won)
+                msg = (f'Hi {nick}. You correctly predicted the game captained by '
+                       f'{" and ".join(capt_nicks)}. You have won {win_amount} shazbucks.')
+                await send_dm(user_id, msg)
+                user = await fetch_member(discord_id)
+                username = user.mention if user else nick
+                winners_msg += f'{username}({win_amount}) '
+                no_winners += 1
+            else:
+                wager_result(conn, wager_id, WAGER_RESULT.Lost)
+                msg = (f'Hi {nick}. You lost your bet on the game captained by '
+                       f'{" and ".join(capt_nicks)}. You have lost your {amount} shazbucks.')
+                await send_dm(user_id, msg)
+        return winners_msg, payout  # TODO: write summary message to channel here instead
+
+    async def pay_players(teams):
+        """Pay the players for participating in a PuG
+
+        :param Tuple[List[discord.Member], List[discord.Member]] teams: Tuple of List per team of discord.Member
+        """
+        # Cache captain info
+        capt_nicks = (teams[0][0].display_name, teams[1][0].display_name)
+        for idx, team in enumerate(teams):
+            captain = True
+            for player in team:
+                cursor = conn.cursor()
+                cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''',
+                               (player.id,))
+                user = cursor.fetchone()
+                if user:
+                    user_id: int = user[0]
+                    nick: str = user[1]
+                    if captain:
+                        captain = False
+                        index = 1 - idx
+                        transfer = (bot_user_id, user_id, BUCKS_PER_PUG * 2)
+                        create_transfer(conn, transfer)
+                        msg = (f'Hi {nick}. You captained a game against {capt_nicks[index]}. For '
+                               f'your efforts you have been rewarded {BUCKS_PER_PUG * 2} shazbucks')
+                        await send_dm(user_id, msg)
+                    else:
+                        transfer = (bot_user_id, user_id, BUCKS_PER_PUG)
+                        create_transfer(conn, transfer)
+                        msg = (f'Hi {nick}. You played a game captained by {" and ".join(capt_nicks)}. '
+                               f'For your efforts you have been rewarded {BUCKS_PER_PUG} shazbucks')
+                        await send_dm(user_id, msg)
 
     @bot.event
     async def on_message(message):
@@ -1351,161 +1468,7 @@ def start_bot(conn):
                 elif 'cancelled' in message.content:
                     await game_cancelled(message)
                 elif 'finished' in message.content:
-                    queue = message.content.split("'")[1]
-                    [result, duration] = description.split('\n')
-                    duration = int(duration.split(' ')[1])
-                    result_msg = ''
-                    game_result = None
-                    total_amounts = {}
-                    no_winners = 0
-                    payout = 0
-                    winners_msg = f''
-                    # Find the game that just finished
-                    game_id = 0
-                    if 'Tied' in result:
-                        game_values = (queue, GAME_STATUS.InProgress, duration, DURATION_TOLERANCE)
-                        sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
-                                  * 24 * 60) AS INTEGER)), team1, team2 
-                                  FROM games 
-                                  WHERE queue = ? AND status = ? AND ABS(CAST (((julianday('now') 
-                                  - julianday(start_time, 'unixepoch')) * 24 * 60) AS INTEGER)) - ? <= ? '''
-                    else:
-                        winner_nick = " ".join(result.split(' ')[2:])
-                        winner_id = (await query_members(winner_nick)).id
-                        winner_id_str = str(winner_id)
-                        game_values = (queue, GAME_STATUS.InProgress, winner_id_str + '%', winner_id_str + '%')
-                        sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
-                                  * 24 * 60) AS INTEGER)),team1, team2 FROM games 
-                                  WHERE queue = ? AND status = ? AND (team1 LIKE ? OR team2 LIKE ?) '''
-                    cursor = conn.cursor()
-                    cursor.execute(sql, game_values)
-                    games = cursor.fetchall()
-                    if not games:
-                        logger.error(f'Game finished in {queue} queue, but no game with InProgress status and '
-                                     f'correct time in that queue.')
-                    else:
-                        game_id: int = games[0][0]
-                        team_id_strs: Tuple[str, str] = games[0][2:4]
-                        # If a tied game and multiple games running in the same queue,
-                        # select the game which duration matches most closely
-                        if len(games) > 1:
-                            duration_offsets: List[int] = [game[1] for game in games]
-                            _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
-                            game_id: int = games[idx][0]
-                            team_id_strs: Tuple[str, str] = games[idx][2:4]
-                        # Create a list of discord members per team
-                        teams = ()
-                        for team_str in team_id_strs:
-                            team = []
-                            for discord_id_str in team_str.split():
-                                if discord_id_str.isdigit():
-                                    player = await fetch_member(int(discord_id_str))
-                                    team.append(player)
-                            teams += (team,)
-                        capt_ids = (teams[0][0].id, teams[1][0].id)
-                        capt_nicks = (teams[0][0].display_name, teams[1][0].display_name)
-                        # Establish the result of the game
-                        game_result = 0
-                        if 'Tie' in result:
-                            game_result = GAME_STATUS.Tied
-                        else:
-                            if winner_id == team_ids[0][0]:
-                                game_result += GAME_STATUS.Team1
-                            elif winner_id == team_ids[1][0]:
-                                game_result += GAME_STATUS.Team2
-                            else:
-                                logger.error(f'Winner {winner_nick} ({winner_id}) not found in game {game_id}: '
-                                             f'{" ".join(team_nicks[0])} versus {" ".join(team_nicks[1])}')
-                        # Save the result of the game and resolve all wagers
-                        if game_result != 0:
-                            finish_game(conn, game_id, game_result)
-                            sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id 
-                                      FROM users, wagers 
-                                      WHERE game_id = ? AND users.id = wagers.user_id AND result = ? '''
-                            cursor = conn.cursor()
-                            cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
-                            wagers = cursor.fetchall()
-                            for wager in wagers:
-                                prediction = GAME_STATUS(wager[2]).name
-                                amount: int = wager[3]
-                                if prediction in total_amounts:
-                                    total_amounts[prediction] += amount
-                                else:
-                                    total_amounts[prediction] = amount
-                            ratio = 0
-                            if GAME_STATUS.Team1.name in total_amounts and GAME_STATUS.Team2.name in total_amounts:
-                                ta_t1 = total_amounts[GAME_STATUS.Team1.name]
-                                ta_t2 = total_amounts[GAME_STATUS.Team2.name]
-                                if game_result == GAME_STATUS.Team1:
-                                    ratio = (ta_t1 + ta_t2) / ta_t1
-                                if game_result == GAME_STATUS.Team2:
-                                    ratio = (ta_t1 + ta_t2) / ta_t2
-                            for wager in wagers:
-                                wager_id: int = wager[0]
-                                user_id: int = wager[1]
-                                prediction: int = wager[2]
-                                amount: int = wager[3]
-                                nick: str = wager[4]
-                                discord_id: int = wager[5]
-                                if game_result == GAME_STATUS.Tied:
-                                    transfer = (bot_user_id, user_id, amount)
-                                    create_transfer(conn, transfer)
-                                    wager_result(conn, wager_id, WAGER_RESULT.Canceled)
-                                    msg = (f'Hi {nick}. The game captained by {" and ".join(captain_nicks)} resulted '
-                                           f'in a tie. Your bet of {amount} shazbucks has been returned to you.')
-                                    await send_dm(user_id, msg)
-                                elif ratio == 0:
-                                    transfer = (bot_user_id, user_id, amount)
-                                    create_transfer(conn, transfer)
-                                    wager_result(conn, wager_id, WAGER_RESULT.Canceled)
-                                    msg = (f'Hi {nick}. Nobody took your bet on the game captained by '
-                                           f'{" and ".join(captain_nicks)}. Your bet of {amount} shazbucks has been '
-                                           f'returned to you.')
-                                    await send_dm(user_id, msg)
-                                elif prediction == game_result:
-                                    win_amount = round(amount * ratio)
-                                    payout += win_amount
-                                    transfer = (bot_user_id, user_id, win_amount)
-                                    create_transfer(conn, transfer)
-                                    wager_result(conn, wager_id, WAGER_RESULT.Won)
-                                    msg = (f'Hi {nick}. You correctly predicted the game captained by '
-                                           f'{" and ".join(captain_nicks)}. You have won {win_amount} shazbucks.')
-                                    await send_dm(user_id, msg)
-                                    user = await fetch_member(discord_id)
-                                    username = user.mention if user else nick
-                                    winners_msg += f'{username}({win_amount}) '
-                                    no_winners += 1
-                                else:
-                                    wager_result(conn, wager_id, WAGER_RESULT.Lost)
-                                    msg = (f'Hi {nick}. You lost your bet on the game captained by '
-                                           f'{" and ".join(captain_nicks)}. You have lost your {amount} shazbucks.')
-                                    await send_dm(user_id, msg)
-                        # Pay those who played
-                        for team in teams:
-                            for player in team:
-                                member = await query_members(player)
-                                if member:
-                                    cursor = conn.cursor()
-                                    cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''',
-                                                   (member.id,))
-                                    user = cursor.fetchone()
-                                    if user:
-                                        user_id: int = user[0]
-                                        nick: str = user[1]
-                                        if player in captains:
-                                            index = 1 - captains.index(player)
-                                            transfer = (bot_user_id, user_id, BUCKS_PER_PUG*2)
-                                            create_transfer(conn, transfer)
-                                            msg = (f'Hi {nick}. You captained a game against {captains[index]}. For '
-                                                   f'your efforts you have been rewarded {BUCKS_PER_PUG*2} shazbucks')
-                                            await send_dm(user_id, msg)
-                                        else:
-                                            transfer = (bot_user_id, user_id, BUCKS_PER_PUG)
-                                            create_transfer(conn, transfer)
-                                            msg = (f'Hi {nick}. You played a game captained by '
-                                                   f'{" and ".join(captains)}. For your efforts you have been rewarded '
-                                                   f'{BUCKS_PER_PUG} shazbucks')
-                                            await send_dm(user_id, msg)
+                    await game_finished(message)
                     if game_result is None:
                         result_msg = '\'ERROR: Game not found\''
                     elif game_result == 0:
@@ -1553,7 +1516,7 @@ def start_bot(conn):
             elif 'has been substituted with' in message.content:
                 success = False
                 old_player, new_player = message.content.replace('`', '').split(' has been substituted with ')
-                search_str = '%' + old_player + '%'
+                search_str = f'%{old_player}%'
                 sql = ''' SELECT id, team1, team2, status FROM games 
                           WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
                 values = (GAME_STATUS.Picking, GAME_STATUS.InProgress, search_str, search_str)

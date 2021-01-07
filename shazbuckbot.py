@@ -1336,6 +1336,7 @@ def start_bot(conn):
         :param Tuple[List[discord.Member], List[discord.Member]] teams: Tuple of List per team of discord.Member
         :param bool change: Boolean indicating whether the result of the game is being changed
         """
+        # TODO: Adapt so !change_game command can use the same code with the change flag
         # Initialize parameters
         total_amounts = {}
         ratio = 0

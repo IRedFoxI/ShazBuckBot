@@ -658,7 +658,7 @@ def start_bot(conn):
                 for game in games:
                     game_id = game[0]
                     teams = game[1:3]
-                    capt_ids = [team.split('')[0] for team in teams]
+                    capt_ids = [team.split()[0] for team in teams]
                     capt_nicks = [(await fetch_member(did)).display_name for did in capt_ids]
                     queue = game[3]
                     game_status = game[4]

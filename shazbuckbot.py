@@ -632,7 +632,7 @@ def start_bot(conn):
 
     @bot.command(name='show', help='Show current open bets')
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_show(ctx):  # TODO: Update to cope with discord ids in database
+    async def cmd_show(ctx):
         success = False
         discord_id = ctx.author.id
         cursor = conn.cursor()
@@ -658,7 +658,8 @@ def start_bot(conn):
                 for game in games:
                     game_id = game[0]
                     teams = game[1:3]
-                    captains = [team.split(':')[0] for team in teams]
+                    capt_ids = [team.split('')[0] for team in teams]
+                    capt_nicks = [(await fetch_member(did)).display_name for did in capt_ids]
                     queue = game[3]
                     game_status = game[4]
                     run_time = game[5]
@@ -673,17 +674,17 @@ def start_bot(conn):
                         total_amounts[prediction] += amount
                     if game_status == GAME_STATUS.Picking:
                         show_str += (f'{queue}: Game {game_id} (Picking): '
-                                     f'{captains[0]} vs '
-                                     f'{captains[1]}\n')
+                                     f'{capt_nicks[0]} vs '
+                                     f'{capt_nicks[1]}\n')
                     elif game_status == GAME_STATUS.InProgress:
                         if run_time <= BET_WINDOW:
                             show_str += (f'{queue}: Game {game_id} ({BET_WINDOW - run_time} minutes left to bet): '
-                                         f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
-                                         f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
+                                         f'{capt_nicks[1]}({total_amounts[GAME_STATUS.Team2]})\n')
                         else:
                             show_str += (f'{queue}: Game {game_id} (Betting closed): '
-                                         f'{captains[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
-                                         f'{captains[1]}({total_amounts[GAME_STATUS.Team2]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GAME_STATUS.Team1]}) vs '
+                                         f'{capt_nicks[1]}({total_amounts[GAME_STATUS.Team2]})\n')
                 if show_str:
                     await ctx.send(show_str)
                     success = True

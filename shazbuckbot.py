@@ -632,7 +632,7 @@ def start_bot(conn):
 
     @bot.command(name='show', help='Show current open bets')
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_show(ctx):
+    async def cmd_show(ctx):  # TODO: Update to cope with discord ids in database
         success = False
         discord_id = ctx.author.id
         cursor = conn.cursor()
@@ -1265,6 +1265,8 @@ def start_bot(conn):
         game_result = GAME_STATUS.Tied if 'Tied' in result else None
         winner_nick = ''
         winner_id = 0
+        total_amounts = {}
+        winners = {}
         # Find the game that just finished
         game_id = 0
         if game_result == GAME_STATUS.Tied:
@@ -1287,6 +1289,7 @@ def start_bot(conn):
         games = cursor.fetchall()
         if not games:
             if game_result == GAME_STATUS.Tied:
+                game_result = None
                 logger.error(f'Game finished with a tie in {queue} queue, but no game with InProgress status and '
                              f'correct time in that queue.')
             else:
@@ -1320,21 +1323,44 @@ def start_bot(conn):
                 elif winner_id == capt_ids[1]:
                     game_result += GAME_STATUS.Team2
                 else:
+                    game_result = 0
                     logger.error(f'Winner {winner_nick} ({winner_id}) not found in game {game_id}: {capt_nicks[0]} '
                                  f'versus {capt_nicks[1]}')
+            # Update the database, resolve wagers and pay the participants
             if game_result:
-                # TODO: write game result to db; resolve wagers; pay participants; summary message to channel
                 finish_game(conn, game_id, game_result)
-                await resolve_wagers(game_id, game_result, teams)
+                total_amounts, winners = await resolve_wagers(game_id, game_result, teams)
                 await pay_players(teams)
+        # Send summary message to the channel, unless nobody placed a bet
+        result_msg = ''
+        if game_result is None:
+            result_msg = '\'ERROR: Game not found\''
+        elif game_result == 0:
+            result_msg = '\'ERROR: Winner not found\''
+        elif game_result == GAME_STATUS.Tied:
+            if len(total_amounts) > 0:
+                result_msg = 'All wagers have been returned because the game resulted in a tie.'
+        elif (game_result == GAME_STATUS.Team1 or
+              game_result == GAME_STATUS.Team2):
+            if len(total_amounts) == 1:
+                result_msg = 'The game only had bets on one team. All wagers have been returned.'
+            if len(total_amounts) == 2:
+                verb = "was" if len(winners) == 1 else "were"
+                winners_str = ' '.join(['%s(%s)' % (key, value) for (key, value) in winners.items()])
+                result_msg = (f'Game {game_id}: {winners_str}{verb} paid out a total of {sum(winners.values())} '
+                              f'shazbucks.')
+        if result_msg:
+            await message.channel.send(result_msg)
 
-    async def resolve_wagers(game_id, game_result, teams, change=False):
+    async def resolve_wagers(game_id, game_result, teams, change=False) -> Tuple[dict, dict]:
         """Resolve wagers placed on a game based on its outcome
 
         :param int game_id: ID of the game
         :param int game_result: Result of the game
         :param Tuple[List[discord.Member], List[discord.Member]] teams: Tuple of List per team of discord.Member
         :param bool change: Boolean indicating whether the result of the game is being changed
+        :return: a dictionary with the total amounts bet on each team and a dictionary with the amount won by each
+            winner
         """
         # TODO: Adapt so !change_game command can use the same code with the change flag
         # Initialize parameters
@@ -1342,7 +1368,7 @@ def start_bot(conn):
         ratio = 0
         no_winners = 0
         payout = 0
-        winners_msg = f''
+        winners = {}
         # Cache captain info
         capt_nicks = (teams[0][0].display_name, teams[1][0].display_name)
         # Find wagers on this game
@@ -1401,14 +1427,15 @@ def start_bot(conn):
                 await send_dm(user_id, msg)
                 user = await fetch_member(discord_id)
                 username = user.mention if user else nick
-                winners_msg += f'{username}({win_amount}) '
+                winners[username] = win_amount
                 no_winners += 1
             else:
                 wager_result(conn, wager_id, WAGER_RESULT.Lost)
                 msg = (f'Hi {nick}. You lost your bet on the game captained by '
                        f'{" and ".join(capt_nicks)}. You have lost your {amount} shazbucks.')
                 await send_dm(user_id, msg)
-        return winners_msg, payout  # TODO: write summary message to channel here instead
+        # Return the total amount bet on each team and the winners and how much they won
+        return total_amounts, winners
 
     async def pay_players(teams):
         """Pay the players for participating in a PuG
@@ -1442,6 +1469,126 @@ def start_bot(conn):
                                f'For your efforts you have been rewarded {BUCKS_PER_PUG} shazbucks')
                         await send_dm(user_id, msg)
 
+    async def replaced_captain(message):
+        success = False
+        new_capt, old_capt = message.content.replace('`', '').replace(' as captain', '').split(' has replaced ')
+        new_capt_id_str = str((await query_members(new_capt)).id)
+        old_capt_id_str = str((await query_members(old_capt)).id)
+        search_str = f'{old_capt_id_str}%'
+        sql = ''' SELECT id, team1, team2 FROM games 
+                  WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
+        cursor = conn.cursor()
+        cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress, search_str, search_str))
+        games = cursor.fetchall()
+        if not games:
+            logger.error(f'Captain replaced, but no game with {old_capt} as captain and Picking or InProgress '
+                         f'status, not sure what game to replace a captain!')
+        else:
+            if len(games) > 1:
+                logger.warning(f'Captain replaced, but multiple games with {old_capt} as captain and Picking or '
+                               f'InProgress status, not sure what game to replace {old_capt}! Replacing '
+                               f'{old_capt} in the last game and hoping for the best!')
+            game_id: int = games[-1][0]
+            team1: str = games[-1][1]
+            team2: str = games[-1][2]
+            if (old_capt_id_str in team1 or team2) and (new_capt_id_str in team1 or team2):
+                team1.replace(old_capt_id_str, '#')
+                team2.replace(old_capt_id_str, '#')
+                team1.replace(new_capt_id_str, old_capt_id_str)
+                team2.replace(new_capt_id_str, old_capt_id_str)
+                team1.replace('#', new_capt_id_str)
+                team1.replace('#', new_capt_id_str)
+                teams = (team1.replace(old_capt, new_capt), team2)
+                update_teams(conn, game_id, teams)
+                success = True
+            else:
+                logger.error(f'Captain replaced, and found game {game_id} with {old_capt} as captain and '
+                             f'Picking or InProgress status, but did not find {new_capt} in that game!')
+        await message.add_reaction(REACTIONS[success])
+
+    async def sub_player(message):
+        success = False
+        old_player, new_player = message.content.replace('`', '').split(' has been substituted with ')
+        old_player_id_str = str((await query_members(old_player)).id)
+        new_player_id_str = str((await query_members(new_player)).id)
+        search_str = f'%{old_player_id_str}%'
+        sql = ''' SELECT id, team1, team2, status FROM games 
+                  WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
+        cursor = conn.cursor()
+        cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress, search_str, search_str))
+        games = cursor.fetchall()
+        if not games:
+            logger.error(f'Player {old_player} substituted with {new_player}, but no game with that player and '
+                         f'Picking or InProgress status, not sure what game to substitute the player!')
+        else:
+            if len(games) > 1:
+                logger.warning(f'Player {old_player} substituted with {new_player}, but multiple games with that '
+                               f'player and Picking or InProgress status, not sure what game to substitute the player! '
+                               f'Substituting the player in the last game and hoping for the best!')
+            game_id: int = games[-1][0]
+            team1: str = games[-1][1]
+            team2: str = games[-1][2]
+            status: int = games[-1][3]
+            if old_player_id_str in team1:
+                team1.replace(old_player_id_str, new_player_id_str)
+                teams = (team1, team2)
+                update_teams(conn, game_id, teams)
+                if status == GAME_STATUS.InProgress:
+                    await cancel_wagers(game_id, 'a player substitution')
+                success = True
+            elif old_player_id_str in team2:
+                team2.replace(old_player_id_str, new_player_id_str)
+                teams = (team1, team2)
+                update_teams(conn, game_id, teams)
+                if status == GAME_STATUS.InProgress:
+                    await cancel_wagers(game_id, 'a player substitution')
+                success = True
+        await message.add_reaction(REACTIONS[success])
+
+    async def swap_player(message):
+        success = False
+        player1, player2 = message.content.replace('`', '').split(' has been swapped with ')
+        player1_id_str = str((await query_members(player1)).id)
+        player2_id_str = str((await query_members(player2)).id)
+        search_str1 = f'%{player1_id_str}%'
+        search_str2 = f'%{player2_id_str}%'
+        values = (GAME_STATUS.InProgress, search_str1, search_str2, search_str2, search_str1)
+        sql = ''' SELECT id, team1, team2 FROM games 
+                  WHERE status = ? AND 
+                  ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?))'''
+        cursor = conn.cursor()
+        cursor.execute(sql, values)
+        games = cursor.fetchall()
+        if not games:
+            logger.error(f'Players swapped, but no game with {player1} and {player2} and InProgress status, not sure '
+                         f'what game to swap the players!')
+        else:
+            if len(games) > 1:
+                logger.warning(f'Players swapped, but multiple games with {player1} and {player2} and InProgress '
+                               f'status, not sure what game to swap the players! Swapping the players in the last '
+                               f'game and hoping for the best!')
+            game_id: int = games[-1][0]
+            team1: str = games[-1][1]
+            team2: str = games[-1][2]
+            if player1_id_str in team1 and player2_id_str in team2:
+                team1.replace(player1_id_str, player2_id_str)
+                team2.replace(player2_id_str, player1_id_str)
+                teams = (team1, team2)
+                update_teams(conn, game_id, teams)
+                await cancel_wagers(game_id, 'a player swap')
+                success = True
+            elif player1_id_str in team2 and player2_id_str in team1:
+                team1.replace(player2_id_str, player1_id_str)
+                team2.replace(player1_id_str, player2_id_str)
+                teams = (team1, team2)
+                update_teams(conn, game_id, teams)
+                await cancel_wagers(game_id, 'a player swap')
+                success = True
+            else:
+                logger.error(f'Player {player1} and {player2} swapped, and found game {game_id} with those players '
+                             f'and InProgress status, but something went wrong!')
+        await message.add_reaction(REACTIONS[success])
+
     @bot.event
     async def on_message(message):
         # Log messages for debugging purposes
@@ -1470,119 +1617,12 @@ def start_bot(conn):
                     await game_cancelled(message)
                 elif 'finished' in message.content:
                     await game_finished(message)
-                    if game_result is None:
-                        result_msg = '\'ERROR: Game not found\''
-                    elif game_result == 0:
-                        result_msg = '\'ERROR: Winner not found\''
-                    elif game_result == GAME_STATUS.Tied:
-                        if len(total_amounts) > 0:
-                            result_msg = 'All wagers have been returned because the game resulted in a tie.'
-                    elif (game_result == GAME_STATUS.Team1 or
-                          game_result == GAME_STATUS.Team2):
-                        if len(total_amounts) == 1:
-                            result_msg = 'The game only had bets on one team. All wagers have been returned.'
-                        if len(total_amounts) == 2:
-                            verb = "was" if no_winners == 1 else "were"
-                            result_msg = f'Game {game_id}: {winners_msg}{verb} paid out a total of {payout} shazbucks.'
-                    if result_msg:
-                        await message.channel.send(result_msg)
             elif 'has replaced' and 'as captain' in message.content:
-                success = False
-                new_capt, old_capt = message.content.replace('`', '').replace(' as captain', '').split(' has replaced ')
-                sql = ''' SELECT id, team1, team2 FROM games 
-                          WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
-                cursor = conn.cursor()
-                cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress, old_capt + '%', old_capt + '%'))
-                games = cursor.fetchall()
-                if not games:
-                    logger.error('Captain replaced, but no game with that captain and Picking or InProgress '
-                                 'status, not sure what game to replace a captain!')
-                else:
-                    if len(games) > 1:
-                        logger.warning('Captain replaced, but multiple games with that captain and Picking or '
-                                       'InProgress status, not sure what game to replace a captain! Replacing captain '
-                                       'in the last game and hoping for the best')
-                    game_id: int = games[-1][0]
-                    team1: str = games[-1][1]
-                    team2: str = games[-1][2]
-                    if team1.startswith(old_capt):
-                        teams = (team1.replace(old_capt, new_capt), team2)
-                        update_teams(conn, game_id, teams)
-                        success = True
-                    elif team2.startswith(old_capt):
-                        teams = (team1, team2.replace(old_capt, new_capt))
-                        update_teams(conn, game_id, teams)
-                        success = True
-                await message.add_reaction(REACTIONS[success])
+                await replaced_captain(message)
             elif 'has been substituted with' in message.content:
-                success = False
-                old_player, new_player = message.content.replace('`', '').split(' has been substituted with ')
-                search_str = f'%{old_player}%'
-                sql = ''' SELECT id, team1, team2, status FROM games 
-                          WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
-                values = (GAME_STATUS.Picking, GAME_STATUS.InProgress, search_str, search_str)
-                cursor = conn.cursor()
-                cursor.execute(sql, values)
-                games = cursor.fetchall()
-                if not games:
-                    logger.error('Player substituted, but no game with that player and InProgress '
-                                 'status, not sure what game to substitute the player!')
-                else:
-                    if len(games) > 1:
-                        logger.warning('Player substituted, but multiple games with that player and InProgress '
-                                       'status, not sure what game to substitute the player! Substituting the player '
-                                       'in the last game and hoping for the best')
-                    game_id: int = games[-1][0]
-                    team1: str = games[-1][1]
-                    team2: str = games[-1][2]
-                    status: int = games[-1][3]
-                    if old_player in team1:
-                        teams = (team1.replace(old_player, new_player), team2)
-                        update_teams(conn, game_id, teams)
-                        if status == GAME_STATUS.InProgress:
-                            await cancel_wagers(game_id, 'a player substitution')
-                        success = True
-                    elif old_player in team2:
-                        teams = (team1, team2.replace(old_player, new_player))
-                        update_teams(conn, game_id, teams)
-                        if status == GAME_STATUS.InProgress:
-                            await cancel_wagers(game_id, 'a player substitution')
-                        success = True
-                await message.add_reaction(REACTIONS[success])
+                await sub_player(message)
             elif 'has been swapped with' in message.content:
-                success = False
-                player1, player2 = message.content.replace('`', '').split(' has been swapped with ')
-                search_str1 = '%' + player1 + '%'
-                search_str2 = '%' + player2 + '%'
-                values = (GAME_STATUS.InProgress, search_str1, search_str2, search_str2, search_str1)
-                sql = ''' SELECT id, team1, team2 FROM games 
-                          WHERE status = ? AND 
-                          ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?))'''
-                cursor = conn.cursor()
-                cursor.execute(sql, values)  # Don't care about picking
-                games = cursor.fetchall()
-                if not games:
-                    logger.error('Players swapped, but no game with those players and InProgress '
-                                 'status, not sure what game to swap the players!')
-                else:
-                    if len(games) > 1:
-                        logger.warning('Players swapped, but multiple games with those players and InProgress '
-                                       'status, not sure what game to swap the players! Swapping the players '
-                                       'in the last game and hoping for the best')
-                    game_id: int = games[-1][0]
-                    team1: str = games[-1][1]
-                    team2: str = games[-1][2]
-                    if player1 in team1 and player2 in team2:
-                        team1 = team1.replace(player1, player2)
-                        team2 = team2.replace(player2, player1)
-                    elif player2 in team1 and player1 in team2:
-                        team1 = team1.replace(player2, player1)
-                        team2 = team2.replace(player1, player2)
-                    teams = (team1, team2)
-                    update_teams(conn, game_id, teams)
-                    await cancel_wagers(game_id, 'a player swap')
-                    success = True
-                await message.add_reaction(REACTIONS[success])
+                await swap_player(message)
         await bot.process_commands(message)
 
     @bot.event

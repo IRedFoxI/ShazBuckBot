@@ -1209,7 +1209,7 @@ def start_bot(conn):
             description = message.embeds[0].description
         [result, duration] = description.split('\n')
         duration = int(duration.split(' ')[1])
-        game_result = GAME_STATUS.Tied if 'Tied' in result else None
+        game_result = GAME_STATUS.Tied if 'Tie' in result else None
         winner_nick = ''
         winner_id = 0
         total_amounts = {}
@@ -1266,9 +1266,9 @@ def start_bot(conn):
             # Establish result if not tied
             if game_result != GAME_STATUS.Tied:
                 if winner_id == capt_ids[0]:
-                    game_result += GAME_STATUS.Team1
+                    game_result = GAME_STATUS.Team1
                 elif winner_id == capt_ids[1]:
-                    game_result += GAME_STATUS.Team2
+                    game_result = GAME_STATUS.Team2
                 else:
                     game_result = 0
                     logger.error(f'Winner {winner_nick} ({winner_id}) not found in game {game_id}: {capt_nicks[0]} '

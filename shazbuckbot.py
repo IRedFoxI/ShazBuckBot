@@ -555,23 +555,31 @@ def start_bot(conn):
                     time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
                         prediction += GAME_STATUS.Team1
-                        winner = games[-1][1].split(':')[0]
+                        team_id_str: str = games[-1][1]
+                        capt_id = int(team_id_str.split()[0])
+                        winner = (await fetch_member(capt_id)).display_name
                         time_since_pick = games[-1][3]
                     elif winner == "2" or caseless_equal(winner, "Blue"):
                         prediction += GAME_STATUS.Team2
-                        winner = games[-1][2].split(':')[0]
+                        team_id_str: str = games[-1][2]
+                        capt_id = int(team_id_str.split()[0])
+                        winner = (await fetch_member(capt_id)).display_name
                         time_since_pick = games[-1][3]
                     else:
                         for game in games:
-                            teams: Tuple[str, str] = game[1:3]
-                            if caseless_equal(winner, teams[0].split(':')[0]):
+                            team_id_strs: Tuple[str, str] = game[1:3]
+                            capt_ids = [int(team_id_str.split()[0]) for team_id_str in team_id_strs]
+                            capt_nicks = tuple([(await fetch_member(did)).display_name for did in capt_ids])
+                            if caseless_equal(winner, capt_nicks[0]):
                                 game_id: int = game[0]
                                 prediction += GAME_STATUS.Team1
                                 time_since_pick = game[3]
-                            elif caseless_equal(winner, teams[1].split(':')[0]):
+                                winner = capt_nicks[0]
+                            elif caseless_equal(winner, capt_nicks[1]):
                                 game_id: int = game[0]
                                 prediction += GAME_STATUS.Team2
                                 time_since_pick = game[3]
+                                winner - capt_nicks[1]
                     if prediction == 0:
                         msg = (f'Hi {nick}, could not find a game captained by {winner}. Please check the spelling, '
                                f'use 1, 2, Red or Blue, or wait until the teams have been picked.')

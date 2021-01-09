@@ -336,6 +336,8 @@ def start_bot(conn):
                     member = await guild.fetch_member(discord_id)
                 except discord.NotFound:
                     pass
+                except asyncio.exceptions.TimeoutError:
+                    pass
         return member
 
     async def query_members(nick) -> discord.Member:
@@ -351,6 +353,8 @@ def start_bot(conn):
                     if members:
                         member = members[0]
                 except discord.NotFound:
+                    pass
+                except asyncio.exceptions.TimeoutError:
                     pass
         return member
 

@@ -5,7 +5,6 @@ from enum import IntEnum
 import yaml
 import sqlite3
 
-from typing import List, Tuple
 
 config = yaml.safe_load(open("config.yml"))
 DATABASE = config['database']
@@ -21,5 +20,3 @@ if __name__ == '__main__':
     cur.execute(sql, values)
     conn.commit()
     conn.close()
-
-

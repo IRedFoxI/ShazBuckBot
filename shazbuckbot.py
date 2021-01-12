@@ -1461,13 +1461,11 @@ def start_bot(conn):
             team1: str = games[-1][1]
             team2: str = games[-1][2]
             if (old_capt_id_str in team1 or team2) and (new_capt_id_str in team1 or team2):
-                team1.replace(old_capt_id_str, '#')
-                team2.replace(old_capt_id_str, '#')
-                team1.replace(new_capt_id_str, old_capt_id_str)
-                team2.replace(new_capt_id_str, old_capt_id_str)
-                team1.replace('#', new_capt_id_str)
-                team1.replace('#', new_capt_id_str)
-                teams = (team1.replace(old_capt, new_capt), team2)
+                team1 = team1.replace(old_capt_id_str, '#')
+                team2 = team2.replace(old_capt_id_str, '#')
+                team1 = team1.replace(new_capt_id_str, old_capt_id_str)
+                team2 = team2.replace(new_capt_id_str, old_capt_id_str)
+                teams = (team1.replace('#', new_capt_id_str), team2.replace('#', new_capt_id_str))
                 update_teams(conn, game_id, teams)
                 success = True
             else:
@@ -1499,15 +1497,13 @@ def start_bot(conn):
             team2: str = games[-1][2]
             status: int = games[-1][3]
             if old_player_id_str in team1:
-                team1.replace(old_player_id_str, new_player_id_str)
-                teams = (team1, team2)
+                teams = (team1.replace(old_player_id_str, new_player_id_str), team2)
                 update_teams(conn, game_id, teams)
                 if status == GAME_STATUS.InProgress:
                     await cancel_wagers(game_id, 'a player substitution')
                 success = True
             elif old_player_id_str in team2:
-                team2.replace(old_player_id_str, new_player_id_str)
-                teams = (team1, team2)
+                teams = (team1, team2.replace(old_player_id_str, new_player_id_str))
                 update_teams(conn, game_id, teams)
                 if status == GAME_STATUS.InProgress:
                     await cancel_wagers(game_id, 'a player substitution')
@@ -1540,16 +1536,12 @@ def start_bot(conn):
             team1: str = games[-1][1]
             team2: str = games[-1][2]
             if player1_id_str in team1 and player2_id_str in team2:
-                team1.replace(player1_id_str, player2_id_str)
-                team2.replace(player2_id_str, player1_id_str)
-                teams = (team1, team2)
+                teams = (team1.replace(player1_id_str, player2_id_str), team2.replace(player2_id_str, player1_id_str))
                 update_teams(conn, game_id, teams)
                 await cancel_wagers(game_id, 'a player swap')
                 success = True
             elif player1_id_str in team2 and player2_id_str in team1:
-                team1.replace(player2_id_str, player1_id_str)
-                team2.replace(player1_id_str, player2_id_str)
-                teams = (team1, team2)
+                teams = (team1.replace(player2_id_str, player1_id_str), team2.replace(player1_id_str, player2_id_str))
                 update_teams(conn, game_id, teams)
                 await cancel_wagers(game_id, 'a player swap')
                 success = True

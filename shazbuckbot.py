@@ -339,8 +339,10 @@ def start_bot(conn):
             if guild.get_channel(BOT_CHANNEL_ID):
                 try:
                     member = await guild.fetch_member(discord_id)
-                except discord.NotFound:
-                    pass
+                except discord.NotFound as e:
+                    logger.error(f'Unable to fetch discord member by id {discord_id}:')
+                    for line in str(e).split('\n'):
+                        logger.error(f'\t{line}')
         return member
 
     async def query_members(nick) -> discord.Member:
@@ -355,8 +357,10 @@ def start_bot(conn):
                     members: List[discord.Member] = await guild.query_members(nick)
                     if members:
                         member = members[0]
-                except discord.NotFound:
-                    pass
+                except discord.NotFound as e:
+                    logger.error(f'Unable to fetch discord member from nickname {nick}:')
+                    for line in str(e).split('\n'):
+                        logger.error(f'\t{line}')
         return member
 
     async def send_dm(user_id, message) -> None:

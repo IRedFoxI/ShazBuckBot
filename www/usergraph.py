@@ -7,6 +7,8 @@ import sys
 import yaml
 import sqlite3
 
+import os
+os.environ['MPLCONFIGDIR'] = '/opt/shazbuckbot/www/matplotlib'
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -14,6 +16,8 @@ plt.style.use('ggplot')
 import matplotlib.dates as md
 
 import datetime as dt
+
+from distutils.util import strtobool
 
 import cgi
 import cgitb
@@ -30,6 +34,11 @@ if form.getlist('discord_id'):
     discord_ids = form.getlist('discord_id')
 else:
     discord_ids = ['292031989773500416', '347125254050676738']
+
+if form.getfirst('gift'):
+    gift = bool(strtobool(form.getfirst('gift')))
+else:
+    gift = False
 
 # Set up the plot
 fig, ax = plt.subplots(figsize=(8, 6))
@@ -59,6 +68,8 @@ for discord_id in discord_ids:
     
             balance = 0
             balances = []
+            gift_balance = 0
+            gift_balances = []
             timestamps = []
     
             for d in data:
@@ -67,13 +78,19 @@ for discord_id in discord_ids:
                 amount: int = d[4]
                 transfer_time: int = d[5]
     
-                if sender == user_id:
+                if sender == user_id and receiver != user_id:
                     balance -= amount
+                    if gift and receiver != 1:
+                        gift_balance -= amount
 
-                if receiver == user_id:
+                if sender != user_id and receiver == user_id:
                     balance += amount
+                    if gift and sender != 1:
+                        gift_balance += amount
                 
                 balances.append(balance)
+                if gift:
+                    gift_balances.append(gift_balance)
                 timestamps.append(transfer_time)
     
             dates = [dt.datetime.fromtimestamp(ts) for ts in timestamps]
@@ -81,6 +98,8 @@ for discord_id in discord_ids:
     
             # Plot the data
             ax.plot(datenums, balances, ls='-', drawstyle='steps-post', color=PLOT_COLORS[color_index], label=nick)
+            if gift:
+                ax.plot(datenums, gift_balances, ls='-.', drawstyle='steps-post', color=PLOT_COLORS[color_index], label=f'{nick} Gifts')
             color_index = (color_index + 1) % len(PLOT_COLORS)
 
 # Finish plot

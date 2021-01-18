@@ -1082,48 +1082,6 @@ def start_bot(conn):
                         success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @bot.command(name='win', help='Simulate win result message')  # TODO: Remove this command
-    @in_channel(BOT_CHANNEL_ID)
-    @is_admin()
-    async def cmd_win(ctx):
-        title = "Game 'NA' finished"
-        description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-
-    @bot.command(name='tie', help='Simulate tie result message')  # TODO: Remove this command
-    @in_channel(BOT_CHANNEL_ID)
-    @is_admin()
-    async def cmd_tie(ctx):
-        title = "Game 'NA' finished"
-        description = '**Tie game**\n**Duration:** 53 Minutes'
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-
-    @bot.command(name='pick', help='Simulate picked message')  # TODO: Remove this command
-    @is_admin()
-    @in_channel(BOT_CHANNEL_ID)
-    async def cmd_picked(ctx):
-        title = "Game 'NA' teams picked"
-        description = ('**Teams**:\n'
-                       'RedFox: RedFox, RedFox, RedFox, RedFox\n'
-                       'ShazBuckBot: RedFox, RedFox, RedFox, RedFox\n'
-                       '\n'
-                       '**Maps**: Elite, Exhumed')
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-
-    @bot.command(name='begin', help='Simulate begin message')  # TODO: Remove this command
-    @is_admin()
-    @in_channel(BOT_CHANNEL_ID)
-    async def cmd_begin(ctx):
-        title = "Game 'NA' has begun"
-        description = ('**Captains: <@292031989773500416> & <@776567538867503134>**\n'
-                       'RedFox, RedFox, RedFox, RedFox, RedFox, RedFox, '
-                       'RedFox, RedFox')
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-
     async def game_begun(message: discord.Message):
         queue = message.content.split("'")[1]
         description = ''
@@ -1565,10 +1523,7 @@ def start_bot(conn):
                     for line in embed.description.split('\n'):
                         logger.debug(f'\t\t{line}')
         # Parse BullyBot's messages for game info
-        # (and own messages during development)
-        if ((message.author.id == BULLYBOT_DISCORD_ID
-             or message.author.id == DISCORD_ID)  # TODO: Remove this line
-                and message.channel.id == PUG_CHANNEL_ID):
+        if message.author.id == BULLYBOT_DISCORD_ID and message.channel.id == PUG_CHANNEL_ID:
             if 'Game' in message.content:
                 if 'begun' in message.content:
                     await game_begun(message)

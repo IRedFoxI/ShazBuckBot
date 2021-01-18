@@ -5,6 +5,8 @@ import asyncio
 import atexit
 import os
 import re
+import time
+
 import unicodedata
 from enum import IntEnum
 
@@ -15,6 +17,7 @@ from typing import List, Tuple
 import logging
 
 import discord
+from aiohttp import ClientConnectorError
 from discord.ext import commands
 
 config = yaml.safe_load(open("config.yml"))
@@ -33,6 +36,8 @@ WAGER_RESULT = IntEnum('Wager_Result', 'InProgress Won Lost Canceled')
 DM_TIME_TO_WAIT = 0.21  # Seconds
 DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
+MAX_RETRY_COUNT = 10
+RETRY_WAIT = 10  # Seconds
 
 
 def caseless_equal(left, right):
@@ -313,7 +318,7 @@ def init_db(conn) -> None:
 
 
 def start_bot(conn):
-    bot = commands.Bot(command_prefix='!')
+    bot = commands.Bot(command_prefix='!', loop=asyncio.new_event_loop())
     cur = conn.cursor()
     cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (DISCORD_ID,))
     bot_user_id = cur.fetchone()[0]
@@ -1519,6 +1524,7 @@ def start_bot(conn):
 
 # Main
 if __name__ == '__main__':
+    # Setup logging
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-log",
@@ -1529,7 +1535,6 @@ if __name__ == '__main__':
             "Example --log debug', default='warning'"
         ),
     )
-
     options = parser.parse_args()
     levels = {
         'critical': logging.CRITICAL,
@@ -1547,8 +1552,21 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
                         level=level)
     logger = logging.getLogger(__name__)
+    # Connect to database and initialise
     db_conn = sqlite3.connect(DATABASE)
     init_db(db_conn)
-    start_bot(db_conn)
+    # Attempt to connect to Discord server
+    retry_count = 0
+    while retry_count < MAX_RETRY_COUNT:
+        try:
+            start_bot(db_conn)
+            break
+        except ClientConnectorError as ex:
+            retry_count += 1
+            logger.error(f'Attempt number {retry_count} to connect to the Discord server failed. Waiting to retry.')
+            time.sleep(RETRY_WAIT)
+    if retry_count == MAX_RETRY_COUNT:
+        logger.error('Unable to connect to the Discord server. Aborting.')
+    # Close database
     db_conn.close()
     logger.info('Database closed.')

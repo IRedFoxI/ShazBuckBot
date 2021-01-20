@@ -592,7 +592,7 @@ def start_bot(conn):
                                 game_id: int = game[0]
                                 prediction += GAME_STATUS.Team2
                                 time_since_pick = game[3]
-                                winner - capt_nicks[1]
+                                winner = capt_nicks[1]
                     if prediction == 0:
                         msg = (f'Hi {nick}, could not find a game captained by {winner}. Please check the spelling, '
                                f'use 1, 2, Red or Blue, or wait until the teams have been picked.')

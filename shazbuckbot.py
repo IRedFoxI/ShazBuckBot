@@ -1270,15 +1270,20 @@ def start_bot(conn):
         elif game_result == GAME_STATUS.Tied:
             if len(total_amounts) > 0:
                 result_msg = 'All wagers have been returned because the game resulted in a tie.'
+                logger.info(f'Game {game_id} finished with a tie and all wagers have been returned.')
         elif (game_result == GAME_STATUS.Team1 or
               game_result == GAME_STATUS.Team2):
             if len(total_amounts) == 1:
                 result_msg = 'The game only had bets on one team. All wagers have been returned.'
+                logger.info(f'Game {game_id} finished with a win for {game_result.name}, '
+                            f'but the game only had bets on one team. All wagers have been returned.')
             if len(total_amounts) == 2:
                 verb = "was" if len(winners) == 1 else "were"
                 winners_str = ', '.join(['%s(%s)' % (key, value) for (key, value) in winners.items()])
                 result_msg = (f'Game {game_id}: {winners_str} {verb} paid out a total of {sum(winners.values())} '
                               f'shazbucks.')
+                logger.info(f'Game {game_id} finished with a win for {game_result.name}. '
+                            f'{winners_str} {verb} paid out a total of {sum(winners.values())} shazbucks.')
         if result_msg:
             await message.channel.send(result_msg)
 
@@ -1438,6 +1443,7 @@ def start_bot(conn):
                 team2 = team2.replace(new_capt_id_str, old_capt_id_str)
                 teams = (team1.replace('#', new_capt_id_str), team2.replace('#', new_capt_id_str))
                 update_teams(conn, game_id, teams)
+                logger.info(f'Captain {old_capt} replaced by {new_capt} in game {game_id}.')
                 success = True
             else:
                 logger.error(f'Captain replaced, and found game {game_id} with {old_capt} as captain and '
@@ -1472,12 +1478,14 @@ def start_bot(conn):
                 update_teams(conn, game_id, teams)
                 if status == GAME_STATUS.InProgress:
                     await cancel_wagers(game_id, 'a player substitution')
+                logger.info(f'Player {old_player} replaced by {new_player} in game {game_id}.')
                 success = True
             elif old_player_id_str in team2:
                 teams = (team1, team2.replace(old_player_id_str, new_player_id_str))
                 update_teams(conn, game_id, teams)
                 if status == GAME_STATUS.InProgress:
                     await cancel_wagers(game_id, 'a player substitution')
+                logger.info(f'Player {old_player} replaced by {new_player} in game {game_id}.')
                 success = True
         await message.add_reaction(REACTIONS[success])
 
@@ -1510,11 +1518,13 @@ def start_bot(conn):
                 teams = (team1.replace(player1_id_str, player2_id_str), team2.replace(player2_id_str, player1_id_str))
                 update_teams(conn, game_id, teams)
                 await cancel_wagers(game_id, 'a player swap')
+                logger.info(f'Player {player1} swapped with {player2} in game {game_id}.')
                 success = True
             elif player1_id_str in team2 and player2_id_str in team1:
                 teams = (team1.replace(player2_id_str, player1_id_str), team2.replace(player1_id_str, player2_id_str))
                 update_teams(conn, game_id, teams)
                 await cancel_wagers(game_id, 'a player swap')
+                logger.info(f'Player {player1} swapped with {player2} in game {game_id}.')
                 success = True
             else:
                 logger.error(f'Player {player1} and {player2} swapped, and found game {game_id} with those players '

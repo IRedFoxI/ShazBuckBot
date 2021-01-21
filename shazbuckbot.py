@@ -373,9 +373,14 @@ def start_bot(conn):
         if not mute_dm:
             user = await fetch_member(discord_id)
             if user:
-                await asyncio.sleep(DM_TIME_TO_WAIT)
-                await user.create_dm()
-                await user.dm_channel.send(message)
+                try:
+                    await asyncio.sleep(DM_TIME_TO_WAIT)
+                    await user.create_dm()
+                    await user.dm_channel.send(message)
+                except discord.Forbidden as e:
+                    logger.error(f'Unable to direct message discord member {user.display_name}:')
+                    for line in str(e).split('\n'):
+                        logger.error(f'\t{line}')
 
     async def cancel_wagers(game_id, reason) -> None:
         """Cancel wagers and return the bet to the users

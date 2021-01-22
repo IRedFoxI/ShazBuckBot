@@ -14,8 +14,8 @@ WAGER_RESULT = IntEnum('Wager_Result', 'InProgress Won Lost Canceled')
 # Main
 if __name__ == '__main__':
     conn = sqlite3.connect(DATABASE)
-    sql = ''' DELETE FROM games WHERE status = ? '''
-    values = (GAME_STATUS.Picking,)
+    sql = ''' UPDATE games SET status = ? WHERE status = ? '''
+    values = (GAME_STATUS.Cancelled, GAME_STATUS.Picking,)
     cur = conn.cursor()
     cur.execute(sql, values)
     conn.commit()

@@ -1252,7 +1252,8 @@ def start_bot(conn):
                 for discord_id_str in team_str.split():
                     if discord_id_str.isdigit():
                         player = await fetch_member(int(discord_id_str))
-                        team.append(player)
+                        if player:
+                            team.append(player)
                 teams += (team,)
             # Cache captain info
             capt_ids = (teams[0][0].id, teams[1][0].id)

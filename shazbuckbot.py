@@ -360,7 +360,11 @@ def start_bot(conn):
                 try:
                     members: List[discord.Member] = await guild.query_members(nick)
                     if members:
-                        member = members[0]
+                        for m in members:
+                            if m.display_name == nick:
+                                member = m
+                    if not member:
+                        logger.error(f'Unable to fetch discord member from nickname {nick}: unable to find player.')
                 except discord.NotFound as e:
                     logger.error(f'Unable to fetch discord member from nickname {nick}:')
                     for line in str(e).split('\n'):

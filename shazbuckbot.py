@@ -1017,8 +1017,9 @@ def start_bot(conn):
                                     ratio = (ta_t1 + ta_t2) / ta_t1
                                 if old_status == GAME_STATUS.Team2:
                                     ratio = (ta_t1 + ta_t2) / ta_t2
-                            # Claw back previous payout
+                            # Set the status of the game back to InProgress
                             finish_game(conn, game_id, GAME_STATUS.InProgress)
+                            # Claw back previous payout
                             for wager in wagers:
                                 wager_id: int = wager[0]
                                 user_id: int = wager[1]
@@ -1078,6 +1079,8 @@ def start_bot(conn):
                                                   f'back.')
                             if result_msg:
                                 await ctx.send(result_msg)
+                        # Set the status of the game to the new result
+                        finish_game(conn, game_id, new_status)
                         # Payout based on new result
                         total_amounts, winners = await resolve_wagers(game_id, new_status, capt_nicks, True)
                         result_msg = ''

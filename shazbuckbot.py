@@ -1292,11 +1292,13 @@ def start_bot(conn):
                 logger.info(f'Game {game_id} finished with a tie and all wagers have been returned.')
         elif (game_result == GAME_STATUS.Team1 or
               game_result == GAME_STATUS.Team2):
-            if len(total_amounts) == 1:
+            if len(total_amounts) == 0:
+                logger.info(f'Game {game_id} finished with a win for {game_result.name}, but the game had no bets.')
+            elif len(total_amounts) == 1:
                 result_msg = 'The game only had bets on one team. All wagers have been returned.'
-                logger.info(f'Game {game_id} finished with a win for {game_result.name}, '
-                            f'but the game only had bets on one team. All wagers have been returned.')
-            if len(total_amounts) == 2:
+                logger.info(f'Game {game_id} finished with a win for {game_result.name}, but the game only had bets '
+                            f'on one team. All wagers have been returned.')
+            elif len(total_amounts) == 2:
                 verb = "was" if len(winners) == 1 else "were"
                 winners_str = ', '.join([f'{user.display_name}({win_amount})' for
                                          (user, win_amount) in winners])

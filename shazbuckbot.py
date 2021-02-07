@@ -1183,31 +1183,65 @@ def start_bot(conn):
                 else:
                     logger.error(f'Could not find discord id for player {nick}')
             team_id_strs += (" ".join(id_strs),)
-        capt_ids = tuple([team.split(' ')[0] for team in team_id_strs])
-        # Find the game that was just picked or repicked
-        game_values = (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress,
-                       capt_ids[0] + '%', capt_ids[1] + '%', capt_ids[1] + '%', capt_ids[0] + '%')
-        sql = ''' SELECT id, status FROM games WHERE queue = ? AND (status = ? OR status = ?)
-                  AND ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?)) '''
+        # Find all games that are Picking or InProgress (in case of a repick) sorted latest first
+        sql = ''' SELECT id, team1, team2, status FROM games WHERE queue = ? AND (status = ? OR status = ?) 
+                  ORDER BY start_time DESC '''
         cursor = conn.cursor()
-        cursor.execute(sql, game_values)
+        cursor.execute(sql, (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress))
         games = cursor.fetchall()
         if not games:
-            logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status and '
-                         f'captains {" and ".join(capt_nicks)} in that queue! ({", ".join(capt_ids)})')
+            logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status in that queue!')
             game = (queue,) + team_id_strs
             game_id = create_game(conn, game)
             game_status = GAME_STATUS.Picking
             logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
         else:
-            if len(games) > 1:
-                logger.error(f'Game picked in {queue} queue, but multiple games with Picking or InProgress '
-                             f'status and captains {" and ".join(capt_nicks)} in that queue! Selecting the '
-                             f'last one and hoping for the best.')
-            game_id: int = games[-1][0]
-            game_status: int = games[-1][1]
+            game_id = 0
+            game_status = 0
+            # For each returned game, find the names of the captains
+            for game in games:
+                team1_id_str: str = game[1]
+                team2_id_str: str = game[2]
+                capt1_id = int(team1_id_str.split()[0])
+                capt2_id = int(team2_id_str.split()[0])
+                try:
+                    capt1_nick = (await fetch_member(capt1_id)).display_name
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    logger.error(f'Unable to find discord member with id {capt1_id}:')
+                    for line in str(e).split('\n'):
+                        logger.error(f'\t{line}')
+                    capt1_nick = str(capt1_id)
+                try:
+                    capt2_nick = (await fetch_member(capt2_id)).display_name
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    logger.error(f'Unable to find discord member with id {capt2_id}:')
+                    for line in str(e).split('\n'):
+                        logger.error(f'\t{line}')
+                    capt2_nick = str(capt2_id)
+                if capt_nicks == (capt1_nick, capt2_nick):
+                    game_id: int = game[0]
+                    game_status: int = game[3]
+                    team_id_strs = (str(capt1_id) + " " + " ".join(team_id_strs[0].split()[1:]),
+                                    str(capt2_id) + " " + " ".join(team_id_strs[1].split()[1:]))
+                    break
+                if capt_nicks == (capt2_nick, capt1_nick):
+                    game_id: int = game[0]
+                    game_status: int = game[3]
+                    team_id_strs = (str(capt2_id) + " " + " ".join(team_id_strs[0].split()[1:]),
+                                    str(capt1_id) + " " + " ".join(team_id_strs[1].split()[1:]))
+                    break
+            # Create game if no game found with the correct captains
+            if game_id == 0:
+                logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status and '
+                             f'captains {" and ".join(capt_nicks)} in that queue!')
+                game = (queue,) + team_id_strs
+                game_id = create_game(conn, game)
+                game_status = GAME_STATUS.Picking
+                logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
+        # Cancel wagers if there is a repick
         if game_status == GAME_STATUS.InProgress:
             await cancel_wagers(game_id, 'a repick')
+        # Update database and log
         pick_game(conn, game_id, team_id_strs)
         logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
         await message.add_reaction(REACTIONS[True])

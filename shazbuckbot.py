@@ -38,6 +38,7 @@ DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
 MAX_RETRY_COUNT = 10
 RETRY_WAIT = 10  # Seconds
+NO_PLAYERS = 10
 
 
 def caseless_equal(left, right):
@@ -1126,13 +1127,38 @@ def start_bot(conn):
         for capt_id in player_id_strs:
             member = await fetch_member(int(capt_id))
             player_nicks.append(member.display_name)
-        for nick in descr_lines[1].split(', '):
-            player_nicks.append(nick)
+        nick_strs = descr_lines[1].split(', ')
+        no_surplus_strs = len(nick_strs) - (NO_PLAYERS - 2)
+        if no_surplus_strs > 0:
+            logger.warning(f'More strings found than expected: {no_surplus_strs}')
+        extras_taken = 0
+        while len(nick_strs) > 0:
+            nick = nick_strs[0]
             player = await query_members(nick)
+            greedy = 0
+            while not player and greedy < no_surplus_strs - extras_taken:
+                logger.warning(f'Could not find discord id for player {nick}. Possibly the name has a comma in it. '
+                               f'Trying again by joining strings.')
+                greedy += 1
+                nick += f', {nick_strs[greedy]}'
+                player = await query_members(nick)
             if player:
+                extras_taken += greedy
+                while greedy >= 0:
+                    nick_strs.pop(0)
+                    greedy -= 1
+                player_nicks.append(nick)
                 player_id_strs[0] += f' {player.id}'
             else:
-                logger.error(f'Could not find discord id for player {nick}')
+                logger.error(f'Could not find discord id for player {nick}.')
+                nick_strs.pop(0)
+        # for nick in descr_lines[1].split(', '):
+        #     player_nicks.append(nick)
+        #     player = await query_members(nick)
+        #     if player:
+        #         player_id_strs[0] += f' {player.id}'
+        #     else:
+        #         logger.error(f'Could not find discord id for player {nick}')
         team_id_strs = tuple(player_id_strs)
         game = (queue,) + team_id_strs
         game_id = create_game(conn, game)

@@ -1159,7 +1159,7 @@ def start_bot(conn):
             team_id_strs += (" ".join(id_strs),)
         # Find all games that are Picking or InProgress (in case of a repick) sorted latest first
         sql = ''' SELECT id, team1, team2, status FROM games WHERE queue = ? AND (status = ? OR status = ?) 
-                  ORDER BY start_date DESC '''
+                  ORDER BY start_time DESC '''
         cursor = conn.cursor()
         cursor.execute(sql, (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress))
         games = cursor.fetchall()

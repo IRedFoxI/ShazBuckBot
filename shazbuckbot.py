@@ -930,8 +930,8 @@ def start_bot(conn):
         try:
             log = repo.heads.master.log()
             await ctx.author.create_dm()
-            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, these are the latest commits:')
-            for entry in log:
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, these are the latest 5 commits:')
+            for entry in log[-5:]:
                 await ctx.author.dm_channel.send(f'{entry}')
             success = True
         except git.GitCommandError as e:

@@ -318,7 +318,7 @@ def init_db(conn) -> None:
 
 
 def start_bot(conn):
-    bot = commands.Bot(command_prefix='!', loop=asyncio.new_event_loop())
+    bot = commands.Bot(command_prefix='!', loop=asyncio.new_event_loop(), help_command=commands.DefaultHelpCommand(dm_help=True))
     cur = conn.cursor()
     cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (DISCORD_ID,))
     bot_user_id = cur.fetchone()[0]
@@ -923,7 +923,7 @@ def start_bot(conn):
     @bot.command(name='changelog', help='Show changelog')
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
-    async def cmd_update(ctx):
+    async def cmd_changelog(ctx):
         logger.info(f'{ctx.author.display_name} requested changelog.')
         success = False
         repo = git.Repo('./')

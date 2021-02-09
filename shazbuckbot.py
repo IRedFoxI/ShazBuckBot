@@ -318,7 +318,8 @@ def init_db(conn) -> None:
 
 
 def start_bot(conn):
-    bot = commands.Bot(command_prefix='!', loop=asyncio.new_event_loop(), help_command=commands.DefaultHelpCommand(dm_help=True))
+    bot = commands.Bot(command_prefix='!', loop=asyncio.new_event_loop(),
+                       help_command=commands.DefaultHelpCommand(dm_help=True))
     cur = conn.cursor()
     cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (DISCORD_ID,))
     bot_user_id = cur.fetchone()[0]
@@ -693,7 +694,19 @@ def start_bot(conn):
                     game_id = game[0]
                     teams = game[1:3]
                     capt_ids = [team.split()[0] for team in teams]
-                    capt_nicks = [(await fetch_member(did)).display_name for did in capt_ids]
+                    capt_nicks = []
+                    for did in capt_ids:
+                        member = await fetch_member(did)
+                        if member:
+                            capt_nicks.append(member.display_name)
+                        else:
+                            cursor = conn.cursor()
+                            cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (did,))
+                            data = cursor.fetchone()
+                            if data:
+                                capt_nicks.append(data[1])
+                            else:
+                                capt_nicks.append('Unknown')
                     queue = game[3]
                     game_status = game[4]
                     run_time = game[5]

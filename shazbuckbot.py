@@ -128,7 +128,7 @@ def create_game(conn, game) -> int:
     """Create a new game into the games table
 
     :param sqlite3.Connection conn:
-    :param tuple[str,str,str] game: Tuple with the details of the game
+    :param tuple[str,str,str] game: Tuple with the details of the game (queue, team1, team2)
     :return: The id of the created game
     """
     game += (GAME_STATUS.Picking,)
@@ -693,23 +693,26 @@ def start_bot(conn):
                 for game in games:
                     game_id = game[0]
                     teams = game[1:3]
-                    capt_ids = [team.split()[0] for team in teams]
-                    capt_nicks = []
-                    for did in capt_ids:
-                        member = await fetch_member(did)
-                        if member:
-                            capt_nicks.append(member.display_name)
-                        else:
-                            cursor = conn.cursor()
-                            cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (did,))
-                            data = cursor.fetchone()
-                            if data:
-                                capt_nicks.append(data[1])
-                            else:
-                                capt_nicks.append('Unknown')
                     queue = game[3]
                     game_status = game[4]
                     run_time = game[5]
+                    capt_ids = [team.split()[0] for team in teams]
+                    capt_nicks = []
+                    for did in capt_ids:
+                        if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                            member = await fetch_member(did)
+                            if member:
+                                capt_nicks.append(member.display_name)
+                            else:
+                                cursor = conn.cursor()
+                                cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (did,))
+                                data = cursor.fetchone()
+                                if data:
+                                    capt_nicks.append(data[1])
+                                else:
+                                    capt_nicks.append('Unknown')
+                        else:
+                            capt_nicks.append(did)
                     cursor = conn.cursor()
                     sql = ''' SELECT prediction, amount FROM wagers WHERE game_id = ? AND result = ? '''
                     cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
@@ -1124,6 +1127,120 @@ def start_bot(conn):
                         if result_msg:
                             await ctx.send(result_msg)
                         success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
+    @bot.command(name='create_game', help='Create a new custom game')
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_create_game(ctx, outcome1: str, outcome2: str, *, queue=''):
+        success = False
+        discord_id = ctx.author.id
+        cursor = conn.cursor()
+        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
+        data = cursor.fetchone()
+        if data is None:
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
+        else:
+            user_id: int = data[0]
+            nick: str = data[1]
+            if queue == '':
+                queue = ctx.author.display_name
+            if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                msg = (f'Hi {nick}. The queue of a custom game cannot be set to NA, EU, AU or TestBranch. '
+                       f'Please use a different name for the queue.')
+                await send_dm(user_id, msg)
+            else:
+                teams = (outcome1, outcome2)
+                game = (queue, ) + teams
+                game_id = create_game(conn, game)
+                pick_game(conn, game_id, teams)
+                success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
+    @bot.command(name='end_game', help='End a custom game')
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_end_game(ctx, game_id: int, result: str):
+        success = False
+        discord_id = ctx.author.id
+        cursor = conn.cursor()
+        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
+        data = cursor.fetchone()
+        if data is None:
+            await ctx.author.create_dm()
+            await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
+        else:
+            user_id: int = data[0]
+            nick: str = data[1]
+            sql = ''' SELECT queue, team1, team2 FROM games 
+                      WHERE id = ? AND status = ? '''
+            values = (game_id, GAME_STATUS.InProgress)
+            cursor = conn.cursor()
+            cursor.execute(sql, values)
+            game = cursor.fetchone()
+            if not game:
+                msg = f'Hi {nick}. The game with id {game_id} does not exist or it\'s status is not InProgress.'
+                await send_dm(user_id, msg)
+            else:
+                queue: str = game[0]
+                outcome1: str = game[1]
+                outcome2: str = game[2]
+                outcomes = (outcome1, outcome2)
+                if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                    msg = (f'Hi {nick}. The game with id {game_id} is not a custom bet, you cannot end the bet this '
+                           f'way. Please use the !change_bet command.')
+                    await send_dm(user_id, msg)
+                else:
+                    new_status = None
+                    if result in ['1', 'Red', 'red', 'Team1', 'team1', outcome1]:
+                        new_status = GAME_STATUS.Team1
+                    elif result in ['2', 'Blue', 'blue', 'Team2', 'team2', outcome2]:
+                        new_status = GAME_STATUS.Team2
+                    elif result in ['3', 'Tie', 'tie', 'Tied', 'tied']:
+                        new_status = GAME_STATUS.Tied
+                    elif result in ['4', 'Cancel', 'cancel', 'Canceled', 'canceled', 'Cancelled', 'cancelled']:
+                        new_status = GAME_STATUS.Cancelled
+                    else:
+                        msg = (f'Hi {nick}. Result not understood. You can use 1, 2, Red or Blue or the captain\'s name'
+                               f' to select the winning outcome. Or use 3/Tie/Tied to tie or '
+                               f'4/Cancel/Canceled/Cancelled to cancel the game.')
+                        await send_dm(user_id, msg)
+                    if new_status:
+                        # Set the status of the game to the new result
+                        finish_game(conn, game_id, new_status)
+                        # Payout based on new result
+                        total_amounts, winners = await resolve_wagers(game_id, new_status, outcomes)
+                        result_msg = ''
+                        if new_status == GAME_STATUS.Tied:
+                            if len(total_amounts) > 0:
+                                result_msg = (f'The result of game {game_id}, with possible outcomes '
+                                              f'{" and ".join(outcomes)}, resulted in a tie. All wagers have been '
+                                              f'returned.')
+                                logger.info(f'Custom Game {game_id} was ended by {nick} in a tie and all wagers have '
+                                            f'been returned.')
+                        elif (new_status == GAME_STATUS.Team1 or
+                              new_status == GAME_STATUS.Team2):
+                            if len(total_amounts) == 1:
+                                result_msg = (f'The game {game_id}, with possible outcomes {" and ".join(outcomes)}, '
+                                              f'finished. The game only had bets on one team. All wagers have been '
+                                              f'returned.')
+                                logger.info(f'Custom Game {game_id} ended by {nick} with a win for {new_status.name}, '
+                                            f'but the game only had bets on one team. All wagers have been returned.')
+                            if len(total_amounts) == 2:
+                                verb = "was" if len(winners) == 1 else "were"
+                                winners_str = ', '.join([f'{user.display_name}({win_amount})' for
+                                                         (user, win_amount) in winners])
+                                payout = sum([win_amount for (user, win_amount) in winners])
+                                result_msg = (f'The game {game_id}, with possible outcomes {" and ".join(outcomes)}, '
+                                              f'finished. {winners_str} {verb} paid out a total of {payout} '
+                                              f'shazbucks.')
+                                logger.info(f'Custom Game {game_id} was ended by {nick} to a win for {new_status.name}.'
+                                            f' {winners_str} {verb} paid out a total of {payout} shazbucks.')
+                        if result_msg:
+                            await ctx.send(result_msg)
+                        success = True
+
         await ctx.message.add_reaction(REACTIONS[success])
 
     async def game_begun(message: discord.Message):

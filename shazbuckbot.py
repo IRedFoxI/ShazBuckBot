@@ -563,8 +563,8 @@ def start_bot(conn):
                 msg = f'Hi {nick}, you cannot bet a negative or zero amount.'
                 await send_dm(user_id, msg)
             else:
-                sql = ''' SELECT id, team1, team2, 
-                          CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER) 
+                sql = ''' SELECT id, team1, team2,
+                          CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER), queue 
                           FROM games WHERE status = ? '''
                 cursor = conn.cursor()
                 cursor.execute(sql, (GAME_STATUS.InProgress,))
@@ -574,25 +574,36 @@ def start_bot(conn):
                     await send_dm(user_id, msg)
                 else:
                     game_id: int = games[-1][0]
+                    queue: str = games[-1][4]
                     prediction = 0
                     time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
                         prediction += GAME_STATUS.Team1
                         team_id_str: str = games[-1][1]
-                        capt_id = int(team_id_str.split()[0])
-                        winner = (await fetch_member(capt_id)).display_name
+                        if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                            capt_id = int(team_id_str.split()[0])
+                            winner = (await fetch_member(capt_id)).display_name
+                        else:
+                            winner = team_id_str
                         time_since_pick = games[-1][3]
                     elif winner == "2" or caseless_equal(winner, "Blue"):
                         prediction += GAME_STATUS.Team2
                         team_id_str: str = games[-1][2]
-                        capt_id = int(team_id_str.split()[0])
-                        winner = (await fetch_member(capt_id)).display_name
+                        if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                            capt_id = int(team_id_str.split()[0])
+                            winner = (await fetch_member(capt_id)).display_name
+                        else:
+                            winner = team_id_str
                         time_since_pick = games[-1][3]
                     else:
                         for game in games:
                             team_id_strs: Tuple[str, str] = game[1:3]
-                            capt_ids = [int(team_id_str.split()[0]) for team_id_str in team_id_strs]
-                            capt_nicks = tuple([(await fetch_member(did)).display_name for did in capt_ids])
+                            queue: str = game[3]
+                            if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                                capt_ids = [int(team_id_str.split()[0]) for team_id_str in team_id_strs]
+                                capt_nicks = tuple([(await fetch_member(did)).display_name for did in capt_ids])
+                            else:
+                                capt_nicks = team_id_strs
                             if caseless_equal(winner, capt_nicks[0]):
                                 game_id: int = game[0]
                                 prediction += GAME_STATUS.Team1
@@ -604,7 +615,7 @@ def start_bot(conn):
                                 time_since_pick = game[3]
                                 winner = capt_nicks[1]
                     if prediction == 0:
-                        msg = (f'Hi {nick}, could not find a game captained by {winner}. Please check the spelling, '
+                        msg = (f'Hi {nick}, could not find a game to bet on {winner}. Please check the spelling, '
                                f'use 1, 2, Red or Blue, or wait until the teams have been picked.')
                         await send_dm(user_id, msg)
                     elif time_since_pick > BET_WINDOW:
@@ -1223,10 +1234,11 @@ def start_bot(conn):
                               new_status == GAME_STATUS.Team2):
                             if len(total_amounts) == 1:
                                 result_msg = (f'The game {game_id}, with possible outcomes {" and ".join(outcomes)}, '
-                                              f'finished. The game only had bets on one team. All wagers have been '
+                                              f'finished. The game only had bets on one outcome. All wagers have been '
                                               f'returned.')
                                 logger.info(f'Custom Game {game_id} ended by {nick} with a win for {new_status.name}, '
-                                            f'but the game only had bets on one team. All wagers have been returned.')
+                                            f'but the game only had bets on one outcome. '
+                                            f'All wagers have been returned.')
                             if len(total_amounts) == 2:
                                 verb = "was" if len(winners) == 1 else "were"
                                 winners_str = ', '.join([f'{user.display_name}({win_amount})' for

@@ -1140,10 +1140,10 @@ def start_bot(conn):
                         success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @bot.command(name='create_game', help='Create a new custom game')
+    @bot.command(name='start_game', help='Create a new custom game')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_create_game(ctx, outcome1: str, outcome2: str, *, queue=''):
+    async def cmd_start_game(ctx, outcome1: str, outcome2: str, *, queue=''):
         success = False
         discord_id = ctx.author.id
         cursor = conn.cursor()

@@ -1143,7 +1143,7 @@ def start_bot(conn):
     @bot.command(name='start_game', help='Create a new custom game')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_start_game(ctx, outcome1: str, outcome2: str, *, queue=''):
+    async def cmd_start_game(ctx, outcome1: str, outcome2: str, *, description=''):
         success = False
         discord_id = ctx.author.id
         cursor = conn.cursor()
@@ -1155,15 +1155,15 @@ def start_bot(conn):
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            if queue == '':
-                queue = ctx.author.display_name
-            if queue in ('NA', 'EU', 'AU', 'TestBranch'):
-                msg = (f'Hi {nick}. The queue of a custom game cannot be set to NA, EU, AU or TestBranch. '
-                       f'Please use a different name for the queue.')
+            if description == '':
+                description = ctx.author.display_name
+            if description in ('NA', 'EU', 'AU', 'TestBranch'):
+                msg = (f'Hi {nick}. The description of a custom game cannot be set to NA, EU, AU or TestBranch. '
+                       f'Please use a different description.')
                 await send_dm(user_id, msg)
             else:
                 teams = (outcome1, outcome2)
-                game = (queue, ) + teams
+                game = (description,) + teams
                 game_id = create_game(conn, game)
                 pick_game(conn, game_id, teams)
                 success = True

@@ -375,6 +375,31 @@ def start_bot(conn):
                     for line in str(e).split('\n'):
                         logger.error(f'\t{line}')
         return member
+    
+    async def get_nick_from_discord_id(discord_id: str) -> str:
+        """Convert a discord id to a nick using discord or a database lookup
+
+        :param str discord_id: The discord id to be looked up
+        :return: The nick associated with the discord id
+        """
+        capt_nick = 'Unknown'
+        if discord_id.isdigit():
+            member = await fetch_member(int(discord_id))
+            if member:
+                capt_nick = member.display_name
+            else:
+                cursor = conn.cursor()
+                cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
+                data = cursor.fetchone()
+                if data:
+                    capt_nick = data[1]
+                else:
+                    logger.warning(f'Unable to fetch nick from discord id ({discord_id}): no valid response from '
+                                   f'discord and not found in the database.')
+        else:
+            logger.warning(f'Unable to fetch nick from discord id: {discord_id} is not a number')
+            capt_nick = discord_id
+        return capt_nick
 
     async def send_dm(user_id, message) -> None:
         """Send a discord DM to the user
@@ -592,8 +617,8 @@ def start_bot(conn):
                         prediction += GAME_STATUS.Team1
                         team_id_str: str = games[-1][1]
                         if queue in ('NA', 'EU', 'AU', 'TestBranch'):
-                            capt_id = int(team_id_str.split()[0])
-                            winner = (await fetch_member(capt_id)).display_name
+                            capt_id_str = team_id_str.split()[0]
+                            winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
                         time_since_pick = games[-1][4]
@@ -601,8 +626,8 @@ def start_bot(conn):
                         prediction += GAME_STATUS.Team2
                         team_id_str: str = games[-1][2]
                         if queue in ('NA', 'EU', 'AU', 'TestBranch'):
-                            capt_id = int(team_id_str.split()[0])
-                            winner = (await fetch_member(capt_id)).display_name
+                            capt_id_str = team_id_str.split()[0]
+                            winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
                         time_since_pick = games[-1][4]
@@ -615,8 +640,8 @@ def start_bot(conn):
                             team_id_strs: Tuple[str, str] = game[1:3]
                             queue: str = game[3]
                             if queue in ('NA', 'EU', 'AU', 'TestBranch'):
-                                capt_ids = [int(team_id_str.split()[0]) for team_id_str in team_id_strs]
-                                capt_nicks = tuple([(await fetch_member(did)).display_name for did in capt_ids])
+                                capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
+                                capt_nicks = [(await get_nick_from_discord_id(did)) for did in capt_ids_strs]
                             else:
                                 capt_nicks = team_id_strs
                             if caseless_equal(winner, capt_nicks[0]):
@@ -721,28 +746,16 @@ def start_bot(conn):
             else:
                 show_str = ''
                 for game in games:
-                    game_id = game[0]
-                    teams = game[1:3]
-                    queue = game[3]
-                    game_status = game[4]
-                    run_time = game[5]
-                    capt_ids = [team.split()[0] for team in teams]
-                    capt_nicks = []
-                    for did in capt_ids:
-                        if queue in ('NA', 'EU', 'AU', 'TestBranch'):
-                            member = await fetch_member(did)
-                            if member:
-                                capt_nicks.append(member.display_name)
-                            else:
-                                cursor = conn.cursor()
-                                cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (did,))
-                                data = cursor.fetchone()
-                                if data:
-                                    capt_nicks.append(data[1])
-                                else:
-                                    capt_nicks.append('Unknown')
-                        else:
-                            capt_nicks.append(did)
+                    game_id: int = game[0]
+                    teams: Tuple[str, str] = game[1:3]
+                    queue: str = game[3]
+                    game_status: GAME_STATUS = game[4]
+                    run_time: int = game[5]
+                    capt_ids_strs = [team.split()[0] for team in teams]
+                    if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                        capt_nicks = [await get_nick_from_discord_id(did) for did in capt_ids_strs]
+                    else:
+                        capt_nicks = capt_ids_strs
                     cursor = conn.cursor()
                     sql = ''' SELECT prediction, amount FROM wagers WHERE game_id = ? AND result = ? '''
                     cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
@@ -1005,22 +1018,26 @@ def start_bot(conn):
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            sql = ''' SELECT team1, team2, status FROM games 
+            sql = ''' SELECT team1, team2, queue, status FROM games 
                       WHERE id = ? AND (status = ? OR status = ? OR status = ? OR status = ? OR status = ?) '''
             values = (game_id, GAME_STATUS.InProgress, GAME_STATUS.Cancelled, GAME_STATUS.Team1,
                       GAME_STATUS.Team2, GAME_STATUS.Tied)
             cursor = conn.cursor()
             cursor.execute(sql, values)
-            games = cursor.fetchone()
-            if not games:
+            game = cursor.fetchone()
+            if not game:
                 msg = (f'Hi {nick}. The game with id {game_id} does not exist or it\'s status is not '
                        f'InProgress, Team1, Team2, Tied or Cancelled.')
                 await send_dm(user_id, msg)
             else:
-                team_id_strs: Tuple[str, str] = games[0:2]
-                capt_ids = [int(team_id_str.split()[0]) for team_id_str in team_id_strs]
-                capt_nicks = tuple([(await fetch_member(did)).display_name for did in capt_ids])
-                old_status = games[2]
+                team_id_strs: Tuple[str, str] = game[0:2]
+                capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
+                queue: str = game[2]
+                if queue in ('NA', 'EU', 'AU', 'TestBranch'):
+                    capt_nicks = [await get_nick_from_discord_id(did) for did in capt_ids_strs]
+                else:
+                    capt_nicks = capt_ids_strs
+                old_status = game[3]
                 new_status = None
                 if result in ['1', 'Red', 'red', 'Team1', 'team1', capt_nicks[0]]:
                     new_status = GAME_STATUS.Team1
@@ -1218,7 +1235,7 @@ def start_bot(conn):
                 queue: str = game[0]
                 outcome1: str = game[1]
                 outcome2: str = game[2]
-                outcomes = (outcome1, outcome2)
+                outcomes = [outcome1, outcome2]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                     msg = (f'Hi {nick}. The game with id {game_id} is not a custom bet, you cannot end the bet this '
                            f'way. Please use the !change_bet command.')
@@ -1461,8 +1478,8 @@ def start_bot(conn):
                             team.append(player)
                 teams += (team,)
             # Cache captain info
-            capt_ids = (teams[0][0].id, teams[1][0].id)
-            capt_nicks = (teams[0][0].display_name, teams[1][0].display_name)
+            capt_ids = [teams[0][0].id, teams[1][0].id]
+            capt_nicks = [teams[0][0].display_name, teams[1][0].display_name]
             # Establish result if not tied
             if game_result != GAME_STATUS.Tied:
                 if winner_id == capt_ids[0]:
@@ -1514,7 +1531,7 @@ def start_bot(conn):
 
         :param int game_id: ID of the game
         :param int game_result: Result of the game
-        :param Tuple[str, str] capt_nicks: Tuple of captain nicks
+        :param List[str] capt_nicks: List of captain nicks
         :param bool change: Boolean indicating whether the result of the game is being changed
         :return: a dictionary with the total amounts bet on each team and a dictionary with the amount won by each
             winner
@@ -1555,11 +1572,11 @@ def start_bot(conn):
                 create_transfer(conn, transfer)
                 wager_result(conn, wager_id, WAGER_RESULT.Canceled)
                 if change:
-                    msg = (f'Hi {nick}. The game captained by {" and ".join(capt_nicks)} was changed. Nobody predicted '
+                    msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. Nobody predicted '
                            f'the correct outcome or the game was cancelled. Your bet of {amount} shazbucks has been '
                            f'returned to you.')
                 else:
-                    msg = (f'Hi {nick}. Nobody predicted the correct outcome of the game captained by '
+                    msg = (f'Hi {nick}. Nobody predicted the correct outcome of the game between '
                            f'{" and ".join(capt_nicks)}. Your bet of {amount} shazbucks has been returned to you.')
                 await send_dm(user_id, msg)
             elif ratio == 1.0:
@@ -1567,11 +1584,11 @@ def start_bot(conn):
                 create_transfer(conn, transfer)
                 wager_result(conn, wager_id, WAGER_RESULT.Canceled)
                 if change:
-                    msg = (f'Hi {nick}. The game captained by {" and ".join(capt_nicks)} was changed. Nobody took '
+                    msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. Nobody took '
                            f'your bet or the game was cancelled. Your bet of {amount} shazbucks has been returned to '
                            f'you.')
                 else:
-                    msg = (f'Hi {nick}. Nobody took your bet on the game captained by {" and ".join(capt_nicks)}. '
+                    msg = (f'Hi {nick}. Nobody took your bet on the game between {" and ".join(capt_nicks)}. '
                            f'Your bet of {amount} shazbucks has been returned to you.')
                 await send_dm(user_id, msg)
             elif prediction == game_result:
@@ -1580,10 +1597,10 @@ def start_bot(conn):
                 create_transfer(conn, transfer)
                 wager_result(conn, wager_id, WAGER_RESULT.Won)
                 if change:
-                    msg = (f'Hi {nick}. The game captained by {" and ".join(capt_nicks)} was changed. You correctly '
+                    msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. You correctly '
                            f'predicted the new result and have won {win_amount} shazbucks.')
                 else:
-                    msg = (f'Hi {nick}. You correctly predicted the game captained by '
+                    msg = (f'Hi {nick}. You correctly predicted the game between '
                            f'{" and ".join(capt_nicks)}. You have won {win_amount} shazbucks.')
                 await send_dm(user_id, msg)
                 user = await fetch_member(discord_id)
@@ -1591,10 +1608,10 @@ def start_bot(conn):
             else:
                 wager_result(conn, wager_id, WAGER_RESULT.Lost)
                 if change:
-                    msg = (f'Hi {nick}. The game captained by {" and ".join(capt_nicks)} was changed. You did not '
+                    msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. You did not '
                            f'predict the new result correctly and have lost your bet of {amount} shazbucks.')
                 else:
-                    msg = (f'Hi {nick}. You lost your bet of {amount} shazbucks on the game captained by '
+                    msg = (f'Hi {nick}. You lost your bet of {amount} shazbucks on the game between '
                            f'{" and ".join(capt_nicks)}.')
                 await send_dm(user_id, msg)
         # Return the total amount bet on each team and the winners and how much they won

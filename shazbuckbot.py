@@ -1465,6 +1465,14 @@ def start_bot(conn):
             if len(games) > 1:
                 duration_offsets: List[int] = [game[1] for game in games]
                 _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
+                # Log info for diagnostics purposes
+                # TODO: remove this block
+                logger.info('Game finished but multiple games match:')
+                for i, game in enumerate(games):
+                    capt_id_strs = [game[2].split()[0], game[3].split()[0]]
+                    capt_nicks = [(await get_nick_from_discord_id(did)) for did in capt_id_strs]
+                    logger.info(f'Game {game[0]}: {" vs ".join(capt_nicks)}, duration offset: {duration_offsets[i]}')
+                logger.info(f'Number {idx} selected: Game {games[idx][0]}.')
                 game_id: int = games[idx][0]
                 team_id_strs: Tuple[str, str] = games[idx][2:4]
             # Create a list of discord members per team

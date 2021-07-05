@@ -934,6 +934,25 @@ def start_bot(conn):
         success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
+    @bot.command(name='tsgraph', help='Show a graph of your trueskill over time')
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_tsgraph(ctx, members: commands.Greedy[discord.Member]):
+        # success = False
+        discord_ids = []
+        if len(members) == 0:
+            discord_ids.append(str(ctx.author.id))
+        else:
+            for member in members:
+                discord_ids.append(str(member.id))
+        ids_str = '&discord_id='.join(discord_ids)
+        graph_url = f'https://club77.org/shazbuckbot/trueskillgraph.py?discord_id={ids_str}'
+        e = discord.Embed(title='')
+        e.set_image(url=graph_url)
+        await ctx.send(embed=e)
+        # await ctx.send(graph_url)
+        success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
     @bot.command(name='quit', help='Shutdown bot')
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()

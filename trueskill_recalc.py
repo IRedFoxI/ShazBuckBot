@@ -34,6 +34,7 @@ conn.execute("""
 """)
 
 player_ratings = {}
+number_of_games = {}
 backends.choose_backend('scipy')
 values = (FIRST_GAME_ID, GAME_STATUS.Team1, GAME_STATUS.Team2, GAME_STATUS.Tied)
 sql = ''' SELECT id, team1, team2, status 
@@ -65,6 +66,7 @@ for game in games:
     elif status == GAME_STATUS.Team2:
         ranks = [1, 0]
     draw_chance = quality([team1_skills, team2_skills])
+    print(f'id: {game_id}, chance to draw: {draw_chance:.2f}, result: {GAME_STATUS(status).name}.')
     (new_team1_skills, new_team2_skills) = rate([team1_skills, team2_skills], ranks)
     for idx, player in enumerate(team1_str.split()):
         rating = new_team1_skills[idx]
@@ -75,8 +77,13 @@ for game in games:
         cur = conn.cursor()
         cur.execute(sql, trueskill_update)
     for idx, player in enumerate(team2_str.split()):
-        player_ratings[player] = new_team2_skills[idx]
-    print(f'id: {game_id}, chance to draw: {draw_chance:.2f}, result: {GAME_STATUS(status).name}.')
+        rating = new_team2_skills[idx]
+        player_ratings[player] = rating
+        trueskill_update = (player, game_id, rating.mu, rating.sigma, rating.exposure)
+        sql = ''' INSERT INTO trueskills(discord_id, game_id, mu, sigma, trueskill)
+                  VALUES(?, ?, ?, ?, ?) '''
+        cur = conn.cursor()
+        cur.execute(sql, trueskill_update)
 for player in player_ratings.keys():
     player_nick = player
     sql = ''' SELECT nick FROM users WHERE discord_id = ? '''

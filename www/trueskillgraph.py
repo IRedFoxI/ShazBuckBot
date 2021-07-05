@@ -84,7 +84,9 @@ for discord_id in discord_ids:
             datenums = md.date2num(dates)
 
             # Plot the data
-            ax.plot(datenums, trueskills, ls='-', drawstyle='steps-post', color=PLOT_COLORS[color_index], label=nick)
+            label_txt = f'{nick} ({len(dates)} games)'
+            ax.plot(datenums, trueskills, ls='-', drawstyle='steps-post', color=PLOT_COLORS[color_index],
+                    label=label_txt)
 
             color_index = (color_index + 1) % len(PLOT_COLORS)
 

@@ -936,6 +936,7 @@ def start_bot(conn):
 
     @bot.command(name='tsgraph', help='Show a graph of your trueskill over time')
     @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
     async def cmd_tsgraph(ctx, members: commands.Greedy[discord.Member]):
         # success = False
         discord_ids = []

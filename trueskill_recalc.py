@@ -11,7 +11,6 @@ GAME_STATUS = IntEnum('Game_Status', 'Picking Cancelled InProgress Team1 Team2 T
 
 config = yaml.safe_load(open("config.yml"))
 DATABASE = config['database']
-REDFOX_DISCORD_ID = config['redfox_discord_id']
 
 conn = sqlite3.connect(DATABASE)
 

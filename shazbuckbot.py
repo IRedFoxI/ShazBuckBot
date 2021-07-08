@@ -1475,16 +1475,17 @@ def start_bot(conn):
                 sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
                                           FROM trueskills WHERE discord_id = ? ) '''
                 values = (int(player_id), int(player_id))
-                cur.execute(sql, values)
-                data = cur.fetchone()
+                cursor = conn.cursor()
+                cursor.execute(sql, values)
+                data = cursor.fetchone()
                 if data:
                     team_rating.append(Rating(data[0], data[1]))
                 else:
                     team_rating.append(Rating())
             team_ratings.append(team_rating)
-            draw_chance = quality(team_ratings)
-            result_msg = f'Teams picked: {draw_chance:.1%} chance to draw.'
-            await message.channel.send(result_msg)
+        draw_chance = quality(team_ratings)
+        result_msg = f'Teams picked: {draw_chance:.1%} chance to draw.'
+        await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 
     async def game_cancelled(message: discord.Message):

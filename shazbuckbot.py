@@ -1468,6 +1468,23 @@ def start_bot(conn):
         # Update database and log
         pick_game(conn, game_id, team_id_strs)
         logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
+        team_ratings = []
+        for team_id_str in team_id_strs:
+            team_rating = []
+            for player_id in team_id_str.split():
+                sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
+                                          FROM trueskills WHERE discord_id = ? ) '''
+                values = (int(player_id), int(player_id))
+                cur.execute(sql, values)
+                data = cur.fetchone()
+                if data:
+                    team_rating.append(Rating(data[0], data[1]))
+                else:
+                    team_rating.append(Rating())
+            team_ratings.append(team_rating)
+            draw_chance = quality(team_ratings)
+            result_msg = f'Teams picked: {draw_chance:.1%} chance to draw.'
+            await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 
     async def game_cancelled(message: discord.Message):
@@ -1567,11 +1584,41 @@ def start_bot(conn):
                     game_result = 0
                     logger.error(f'Winner {winner_nick} ({winner_id}) not found in game {game_id}: {capt_nicks[0]} '
                                  f'versus {capt_nicks[1]}')
-            # Update the database, resolve wagers and pay the participants
+            # Update the database, resolve wagers, pay the participants and update trueskills
             if game_result:
                 finish_game(conn, game_id, game_result)
                 total_amounts, winners = await resolve_wagers(game_id, game_result, capt_nicks)
                 await pay_players(teams)
+                team_ratings = ()
+                for team in teams:
+                    team_rating = []
+                    for player in team:
+                        sql = ''' SELECT mu, sigma FROM trueskills 
+                                  WHERE discord_id = ? AND game_id IN ( 
+                                    SELECT MAX(game_id) FROM trueskills WHERE discord_id = ? 
+                                  ) '''
+                        values = (player.id, player.id)
+                        cur.execute(sql, values)
+                        data = cur.fetchone()
+                        if data:
+                            team_rating.append(Rating(data[0], data[1]))
+                        else:
+                            team_rating.append(Rating())
+                    team_ratings += (team_rating,)
+                ranks = [0, 0]
+                if game_result == GAME_STATUS.Team1:
+                    ranks = [0, 1]
+                elif game_result == GAME_STATUS.Team2:
+                    ranks = [1, 0]
+                new_team_ratings = rate([team_ratings[0], team_ratings[1]], ranks)
+                for team_idx, team in enumerate(teams):
+                    for player_idx, player in enumerate(team):
+                        rating = new_team_ratings[team_idx][player_idx]
+                        trueskill_update = (player.id, game_id, rating.mu, rating.sigma, rating.exposure)
+                        sql = ''' INSERT INTO trueskills(discord_id, game_id, mu, sigma, trueskill)
+                                          VALUES(?, ?, ?, ?, ?) '''
+                        cursor = conn.cursor()
+                        cursor.execute(sql, trueskill_update)
         # Send summary message to the channel, unless nobody placed a bet
         result_msg = ''
         if game_result is None:

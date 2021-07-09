@@ -1619,6 +1619,7 @@ def start_bot(conn):
                                           VALUES(?, ?, ?, ?, ?) '''
                         cursor = conn.cursor()
                         cursor.execute(sql, trueskill_update)
+                        conn.commit()
         # Send summary message to the channel, unless nobody placed a bet
         result_msg = ''
         if game_result is None:

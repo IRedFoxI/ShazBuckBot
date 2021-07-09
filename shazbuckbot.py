@@ -6,7 +6,8 @@ import atexit
 import os
 import re
 import time
-from itertools import combinations
+from itertools import combinations, chain
+from math import sqrt
 
 import unicodedata
 from enum import IntEnum
@@ -21,7 +22,7 @@ import discord
 from aiohttp import ClientConnectorError
 from discord.ext import commands
 
-from trueskill import Rating, rate, quality, backends
+from trueskill import Rating, rate, quality, backends, BETA, global_env
 
 backends.choose_backend('scipy')
 
@@ -1468,6 +1469,7 @@ def start_bot(conn):
         # Update database and log
         pick_game(conn, game_id, team_id_strs)
         logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
+        # Estimate chances
         team_ratings = []
         for team_id_str in team_id_strs:
             team_rating = []
@@ -1484,7 +1486,13 @@ def start_bot(conn):
                     team_rating.append(Rating())
             team_ratings.append(team_rating)
         draw_chance = quality(team_ratings)
-        result_msg = f'Teams picked: {draw_chance:.1%} chance to draw.'
+        delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
+        sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
+        size = len(team_ratings[0]) + len(team_ratings[1])
+        team1_win_chance = (1 - draw_chance) * global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
+        team2_win_chance = 1 - draw_chance - team1_win_chance
+        result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%}) or '
+                      f'Tie ({draw_chance:.1%}).')
         await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 

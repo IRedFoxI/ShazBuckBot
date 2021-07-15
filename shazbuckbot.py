@@ -13,6 +13,7 @@ import unicodedata
 from enum import IntEnum
 
 import git
+import requests
 import yaml
 import sqlite3
 from typing import List, Tuple
@@ -44,6 +45,10 @@ DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
 MAX_RETRY_COUNT = 10
 RETRY_WAIT = 10  # Seconds
+# TWITCH_GAME_ID = "517069"  # midair community edition
+TWITCH_GAME_ID = "33214"  # midair community edition
+TWITCH_CLIENT_ID = config['twitch_client_id']
+TWITCH_AUTH_ACCESS_TOKEN = config['twitch_auth_access_token']
 
 
 def caseless_equal(left, right):
@@ -1331,6 +1336,31 @@ def start_bot(conn):
                         if result_msg:
                             await ctx.send(result_msg)
                         success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
+    @bot.command(name='streams', help='Show midair streams')
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_streams(ctx):
+        success = False
+        headers = {
+            'Content-type': 'application/json',
+            'Authorization': f'Bearer {TWITCH_AUTH_ACCESS_TOKEN}',
+            'Client-Id': f'{TWITCH_CLIENT_ID}',
+        }
+        response = requests.get('https://api.twitch.tv/helix/streams?first=5&game_id=' + TWITCH_GAME_ID,
+                                headers=headers)
+        time.sleep(2)
+        streams = response.json()
+        if streams['data']:
+            embed: discord.Embed = discord.Embed(title="", description="", color=discord.Color(8192255))
+            for stream in streams['data']:
+                stream_name = (f"{str(stream['viewer_count'])}<:z_1:771957560005099530> {str(stream['user_name'])} - "
+                               f"{str(stream['title'])}")
+                stream_link = "https://www.twitch.tv/" + str(stream['user_name'])
+                stream_url = "[twitch.tv/" + str(stream['user_name']) + "](" + stream_link + ")"
+                embed.add_field(name=stream_name, value=stream_url, inline=False)
+            await ctx.channel.send(embed=embed)
+            success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
     async def game_begun(message: discord.Message):

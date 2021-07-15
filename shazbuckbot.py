@@ -7,7 +7,7 @@ import os
 import re
 import time
 from itertools import combinations, chain
-from math import sqrt
+from math import sqrt, floor
 
 import unicodedata
 from enum import IntEnum
@@ -1359,35 +1359,34 @@ def start_bot(conn):
         game = (queue,) + team_id_strs
         game_id = create_game(conn, game)
         logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
-        if len(player_ids) == 10:
-            player_ratings = {}
-            for player_id in player_ids:
-                sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
-                          FROM trueskills WHERE discord_id = ? ) '''
-                values = (player_id, player_id)
-                cur.execute(sql, values)
-                data = cur.fetchone()
-                if data:
-                    player_ratings[player_id] = Rating(data[0], data[1])
-                else:
-                    player_ratings[player_id] = Rating()
-            best_team1_ids = []
-            best_team2_ids = []
-            best_chance_to_draw = 0
-            for c in combinations(player_ids, 5):
-                team1_ids = list(c)
-                team2_ids = [x for x in player_ids if x not in team1_ids]
-                team1_rating = [player_ratings[i] for i in team1_ids]
-                team2_rating = [player_ratings[i] for i in team2_ids]
-                chance_to_draw = quality([team1_rating, team2_rating])
-                if chance_to_draw > best_chance_to_draw:
-                    best_team1_ids = team1_ids
-                    best_team2_ids = team2_ids
-                    best_chance_to_draw = chance_to_draw
-            team1_str = '<@!' + '>, <@!'.join([str(i) for i in best_team1_ids]) + '>'
-            team2_str = '<@!' + '>, <@!'.join([str(i) for i in best_team2_ids]) + '>'
-            result_msg = f'Suggested teams: {team1_str} versus {team2_str} ({best_chance_to_draw:.1%} chance to draw).'
-            await message.channel.send(result_msg)
+        player_ratings = {}
+        for player_id in player_ids:
+            sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
+                      FROM trueskills WHERE discord_id = ? ) '''
+            values = (player_id, player_id)
+            cur.execute(sql, values)
+            data = cur.fetchone()
+            if data:
+                player_ratings[player_id] = Rating(data[0], data[1])
+            else:
+                player_ratings[player_id] = Rating()
+        best_team1_ids = []
+        best_team2_ids = []
+        best_chance_to_draw = 0
+        for c in combinations(player_ids, floor(len(player_ids)/2)):
+            team1_ids = list(c)
+            team2_ids = [x for x in player_ids if x not in team1_ids]
+            team1_rating = [player_ratings[i] for i in team1_ids]
+            team2_rating = [player_ratings[i] for i in team2_ids]
+            chance_to_draw = quality([team1_rating, team2_rating])
+            if chance_to_draw > best_chance_to_draw:
+                best_team1_ids = team1_ids
+                best_team2_ids = team2_ids
+                best_chance_to_draw = chance_to_draw
+        team1_str = '<@!' + '>, <@!'.join([str(i) for i in best_team1_ids]) + '>'
+        team2_str = '<@!' + '>, <@!'.join([str(i) for i in best_team2_ids]) + '>'
+        result_msg = f'Suggested teams: {team1_str} versus {team2_str} ({best_chance_to_draw:.1%} chance to draw).'
+        await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 
     async def game_picked(message: discord.Message):

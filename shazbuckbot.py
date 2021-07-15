@@ -45,8 +45,7 @@ DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
 MAX_RETRY_COUNT = 10
 RETRY_WAIT = 10  # Seconds
-# TWITCH_GAME_ID = "517069"  # midair community edition
-TWITCH_GAME_ID = "33214"  # midair community edition
+TWITCH_GAME_ID = "517069"  # midair community edition
 TWITCH_CLIENT_ID = config['twitch_client_id']
 TWITCH_AUTH_ACCESS_TOKEN = config['twitch_auth_access_token']
 

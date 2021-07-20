@@ -8,3 +8,5 @@ bullybot_discord_id: 359925573134319628
 redfox_discord_id: 292031989773500416
 pug_channel_id: 681756238190870601
 bot_channel_id: 681756238190870601
+twitch_client_id: <twitch client id>  # https://dev.twitch.tv/docs/authentication
+twitch_auth_access_token: <twitch auth access token>  # https://dev.twitch.tv/docs/authentication/getting-tokens-oauth#oauth-client-credentials-flow

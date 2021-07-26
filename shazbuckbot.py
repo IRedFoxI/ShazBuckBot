@@ -7,6 +7,7 @@ import os
 import re
 import time
 import typing
+from datetime import datetime
 from itertools import combinations, chain
 from math import sqrt, floor
 
@@ -1038,7 +1039,10 @@ def start_bot(conn):
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, these are the latest 5 commits:')
             for entry in log[-5:]:
-                await ctx.author.dm_channel.send(f'{entry}')
+                commit = repo.commit(entry.newhexsha)
+                entry_string = (f'{commit.authored_datetime} {entry.newhexsha} {commit.author.name}:\n'
+                                f'{commit.message.rstrip()}')
+                await ctx.author.dm_channel.send(entry_string)
             success = True
         except git.GitCommandError as e:
             logger.error('Git command did not complete correctly:')

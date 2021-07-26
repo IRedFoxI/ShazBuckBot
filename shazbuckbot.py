@@ -44,6 +44,7 @@ WAGER_RESULT = IntEnum('Wager_Result', 'InProgress Won Lost Cancelled CancelledN
 DM_TIME_TO_WAIT = 0.21  # Seconds
 DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
+TIE_PAYOUT_SCALE = 0.5
 MAX_RETRY_COUNT = 10
 RETRY_WAIT = 10  # Seconds
 TWITCH_GAME_ID = "517069"  # midair community edition
@@ -1151,6 +1152,8 @@ def start_bot(conn):
                                     await send_dm(user_id, msg)
                                 elif prediction == old_status:
                                     win_amount = round(amount * ratio)
+                                    if prediction == GAME_STATUS.Tied:
+                                        win_amount = win_amount * TIE_PAYOUT_SCALE
                                     transfer = (user_id, bot_user_id, win_amount)
                                     create_transfer(conn, transfer)
                                     wager_result(conn, wager_id, WAGER_RESULT.InProgress)
@@ -1785,6 +1788,8 @@ def start_bot(conn):
                 await send_dm(user_id, msg)
             elif prediction == game_result:
                 win_amount = round(amount * ratio)
+                if prediction == GAME_STATUS.Tied:
+                    win_amount = win_amount * TIE_PAYOUT_SCALE
                 transfer = (bot_user_id, user_id, win_amount)
                 create_transfer(conn, transfer)
                 wager_result(conn, wager_id, WAGER_RESULT.Won)

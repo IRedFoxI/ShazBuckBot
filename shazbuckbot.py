@@ -1541,7 +1541,8 @@ def start_bot(conn):
         #               f' or Tie ({draw_chance:.1%}).')
         team1_win_chance = global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
         team2_win_chance = 1 - team1_win_chance
-        result_msg = f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%}).'
+        result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%}).'
+                      f' Payout for betting on ties is {TIE_PAYOUT_SCALE:.0%}.')
         await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 

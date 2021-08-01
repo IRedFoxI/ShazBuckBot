@@ -336,6 +336,15 @@ def init_db(conn) -> None:
             result INTEGER NOT NULL
         );
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS motds (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            channel INT NOT NULL,
+            start_time INT NOT NULL,
+            end_time INT,
+            message TEXT NOT NULL
+        );
+    """)
 
 
 def start_bot(conn):

@@ -7,7 +7,6 @@ import os
 import re
 import time
 import typing
-from datetime import datetime
 from itertools import combinations, chain
 from math import sqrt, floor
 
@@ -40,8 +39,8 @@ BULLYBOT_DISCORD_ID: int = config['bullybot_discord_id']
 REDFOX_DISCORD_ID: int = config['redfox_discord_id']
 PUG_CHANNEL_ID: int = config['pug_channel_id']
 BOT_CHANNEL_ID: int = config['bot_channel_id']
-GAME_STATUS = IntEnum('Game_Status', 'Picking Cancelled InProgress Team1 Team2 Tied')
-WAGER_RESULT = IntEnum('Wager_Result', 'InProgress Won Lost Cancelled CancelledNoWinners CancelledOneSided')
+GAME_STATUS = IntEnum('GAME_STATUS', 'Picking Cancelled InProgress Team1 Team2 Tied')
+WAGER_RESULT = IntEnum('WAGER_RESULT', 'InProgress Won Lost Cancelled CancelledNoWinners CancelledOneSided')
 DM_TIME_TO_WAIT = 0.21  # Seconds
 DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]

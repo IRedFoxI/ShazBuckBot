@@ -51,6 +51,7 @@ RETRY_WAIT = 10  # Seconds
 TWITCH_GAME_ID = "517069"  # midair community edition
 TWITCH_CLIENT_ID: str = config['twitch_client_id']
 TWITCH_AUTH_ACCESS_TOKEN: str = config['twitch_auth_access_token']
+DEFAULT_MOTD_TIME = 60 * 60 * 24
 
 
 def caseless_equal(left, right):
@@ -277,6 +278,35 @@ def wager_result(conn, wager_id, result) -> None:
     conn.commit()
 
 
+def create_motd(conn, motd) -> int:
+    """Create a new motd into the motds table
+
+    :param sqlite3.Connection conn: Connection to the database
+    :param tuple[int,int,int,int] motd: Tuple with the details of the wager
+    :return: The id of the created motd or 0 if an error occurred
+    """
+    if len(motd) < 4:
+        motd += (DEFAULT_MOTD_TIME,)
+    sql = ''' INSERT INTO motds(discord_id, channel, start_time, message, end_time)
+              VALUES(?, ?, strftime('%s','now'), ?, strftime('%s','now') + ?) '''
+    cur = conn.cursor()
+    cur.execute(sql, motd)
+    conn.commit()
+    return cur.lastrowid
+
+
+def end_motd(conn, motd_id) -> None:
+    """End a motd
+
+    :param sqlite3.Connection conn: Connection to the database
+    :param int motd_id: The id of the motd to be ended
+    """
+    sql = ''' UPDATE motd SET end_time = strftime('%s','now') WHERE id = ? '''
+    cur = conn.cursor()
+    cur.execute(sql, (motd_id,))
+    conn.commit()
+
+
 def init_db(conn) -> None:
     """Initialize a new database
 
@@ -339,7 +369,8 @@ def init_db(conn) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS motds (
             id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-            channel INT NOT NULL,
+            discord_id INT NOT NULL,
+            channel_id INT NOT NULL,
             start_time INT NOT NULL,
             end_time INT,
             message TEXT NOT NULL

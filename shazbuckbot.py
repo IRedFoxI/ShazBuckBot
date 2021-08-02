@@ -7,12 +7,11 @@ import os
 import re
 import time
 import typing
-from datetime import datetime
 from itertools import combinations, chain
 from math import sqrt, floor
 
 import unicodedata
-from enum import IntEnum
+from enum import IntEnum, auto
 
 import git
 import requests
@@ -40,8 +39,26 @@ BULLYBOT_DISCORD_ID: int = config['bullybot_discord_id']
 REDFOX_DISCORD_ID: int = config['redfox_discord_id']
 PUG_CHANNEL_ID: int = config['pug_channel_id']
 BOT_CHANNEL_ID: int = config['bot_channel_id']
-GAME_STATUS = IntEnum('Game_Status', 'Picking Cancelled InProgress Team1 Team2 Tied')
-WAGER_RESULT = IntEnum('Wager_Result', 'InProgress Won Lost Cancelled CancelledNoWinners CancelledOneSided')
+
+
+class GameStatus(IntEnum):
+    PICKING = auto()
+    CANCELLED = auto()
+    INPROGRESS = auto()
+    TEAM1 = auto()
+    TEAM2 = auto()
+    TIED = auto()
+
+
+class WagerResult(IntEnum):
+    INPROGRESS = auto()
+    WON = auto()
+    LOST = auto()
+    CANCELLED = auto()
+    CANCELLEDNOWINNERS = auto()
+    CANCELLEDONESIDED = auto()
+
+
 DM_TIME_TO_WAIT = 0.21  # Seconds
 DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
@@ -145,7 +162,7 @@ def create_game(conn, game) -> int:
     :param tuple[str,str,str,int] game: Tuple with the details of the game
     :return: The id of the created game
     """
-    game += (GAME_STATUS.Picking,)
+    game += (GameStatus.PICKING,)
     sql = ''' INSERT INTO games(queue, start_time, team1, team2, bet_window, status)
               VALUES(?, strftime('%s','now'), ?, ?, ?, ?) '''
     cur = conn.cursor()
@@ -160,7 +177,7 @@ def cancel_game(conn, game_id) -> None:
     :param sqlite3.Connection conn: The connection to the database
     :param int game_id: The id of the game to update to InProgress status
     """
-    values = (GAME_STATUS.Cancelled, game_id)
+    values = (GameStatus.CANCELLED, game_id)
     sql = ''' UPDATE games SET status = ? WHERE id = ? '''
     cur = conn.cursor()
     cur.execute(sql, values)
@@ -190,7 +207,7 @@ def pick_game(conn, game_id, teams) -> None:
     :param int game_id: The id of the game to update to InProgress status
     :param tuple[str,str] teams: The picked teams of the game
     """
-    values = teams + (GAME_STATUS.InProgress, game_id)
+    values = teams + (GameStatus.INPROGRESS, game_id)
     sql = ''' UPDATE games
               SET pick_time = strftime('%s','now'), team1 = ?, team2 = ?, 
               status = ? 
@@ -207,7 +224,7 @@ def finish_game(conn, game_id, result) -> None:
     :param int game_id: The id of the game to be finished
     :param int result: The result of the game in GAME_STATUS format
     """
-    if result not in set(r.value for r in GAME_STATUS):
+    if result not in set(r.value for r in GameStatus):
         raise ValueError()
     values = (result, game_id)
     sql = ''' UPDATE games SET status = ? WHERE id = ?'''
@@ -223,7 +240,7 @@ def create_wager(conn, wager) -> int:
     :param tuple[int,int,int,int] wager: Tuple with the details of the wager
     :return: The id of the created wager or 0 if an error occurred
     """
-    wager += (WAGER_RESULT.InProgress,)
+    wager += (WagerResult.INPROGRESS,)
     sql = ''' INSERT INTO wagers(user_id, wager_time, game_id, prediction, 
               amount, result)
               VALUES(?, strftime('%s','now'), ?, ?, ?, ?) '''
@@ -269,7 +286,7 @@ def wager_result(conn, wager_id, result) -> None:
     :param int wager_id: The id of the wager to be updated
     :param int result: Result of the wager in the format of WAGER_RESULT
     """
-    if result not in set(r.value for r in WAGER_RESULT):
+    if result not in set(r.value for r in WagerResult):
         raise ValueError()
     values = (result, wager_id)
     sql = ''' UPDATE wagers SET result = ? WHERE id = ? '''
@@ -490,7 +507,7 @@ def start_bot(conn):
         sql = ''' SELECT wagers.id, user_id, amount, nick, team1, team2 FROM wagers, users, games 
                   WHERE game_id = ? AND users.id = user_id AND games.id = ? AND result = ?'''
         cursor = conn.cursor()
-        cursor.execute(sql, (game_id, game_id, WAGER_RESULT.InProgress))
+        cursor.execute(sql, (game_id, game_id, WagerResult.INPROGRESS))
         wagers = cursor.fetchall()
         for wager in wagers:
             wager_id: int = wager[0]
@@ -501,7 +518,7 @@ def start_bot(conn):
             captains = [team.split(':')[0] for team in teams]
             transfer = (bot_user_id, user_id, amount)
             create_transfer(conn, transfer)
-            wager_result(conn, wager_id, WAGER_RESULT.Cancelled)
+            wager_result(conn, wager_id, WagerResult.CANCELLED)
             msg = (f'Hi {nick}. Your bet on the game captained by {" and ".join(captains)} was cancelled '
                    f'due to {reason}. Your bet of {amount} shazbucks has been returned to you.')
             await send_dm(user_id, msg)
@@ -654,13 +671,13 @@ def start_bot(conn):
                               CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER),
                               bet_window
                               FROM games WHERE status = ? '''
-                    game_data = (GAME_STATUS.InProgress,)
+                    game_data = (GameStatus.INPROGRESS,)
                 else:
                     sql = ''' SELECT id, team1, team2, queue,
                               CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER),
                               bet_window
                               FROM games WHERE id = ? AND status = ? '''
-                    game_data = (game_id, GAME_STATUS.InProgress)
+                    game_data = (game_id, GameStatus.INPROGRESS)
                 cursor = conn.cursor()
                 cursor.execute(sql, game_data)
                 games = cursor.fetchall()
@@ -678,7 +695,7 @@ def start_bot(conn):
                     prediction = 0
                     time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
-                        prediction += GAME_STATUS.Team1
+                        prediction += GameStatus.TEAM1
                         team_id_str: str = games[-1][1]
                         if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                             capt_id_str = team_id_str.split()[0]
@@ -687,7 +704,7 @@ def start_bot(conn):
                             winner = team_id_str
                         time_since_pick = games[-1][4]
                     elif winner == "2" or caseless_equal(winner, "Blue"):
-                        prediction += GAME_STATUS.Team2
+                        prediction += GameStatus.TEAM2
                         team_id_str: str = games[-1][2]
                         if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                             capt_id_str = team_id_str.split()[0]
@@ -696,7 +713,7 @@ def start_bot(conn):
                             winner = team_id_str
                         time_since_pick = games[-1][4]
                     elif winner == "3" or caseless_equal(winner, "Tie"):
-                        prediction += GAME_STATUS.Tied
+                        prediction += GameStatus.TIED
                         winner = 'a tie'
                         time_since_pick = games[-1][4]
                     else:
@@ -710,12 +727,12 @@ def start_bot(conn):
                                 capt_nicks = team_id_strs
                             if caseless_equal(winner, capt_nicks[0]):
                                 game_id: int = game[0]
-                                prediction += GAME_STATUS.Team1
+                                prediction += GameStatus.TEAM1
                                 time_since_pick = game[4]
                                 winner = capt_nicks[0]
                             elif caseless_equal(winner, capt_nicks[1]):
                                 game_id: int = game[0]
-                                prediction += GAME_STATUS.Team2
+                                prediction += GameStatus.TEAM2
                                 time_since_pick = game[4]
                                 winner = capt_nicks[1]
                     if prediction == 0:
@@ -733,7 +750,7 @@ def start_bot(conn):
                     else:
                         sql = ''' SELECT id, prediction FROM wagers 
                                   WHERE user_id = ? AND game_id = ? AND result = ? '''
-                        values = (user_id, game_id, WAGER_RESULT.InProgress)
+                        values = (user_id, game_id, WagerResult.INPROGRESS)
                         cursor = conn.cursor()
                         cursor.execute(sql, values)
                         prev_wager: Tuple[int] = cursor.fetchone()
@@ -803,7 +820,7 @@ def start_bot(conn):
                       bet_window
                       FROM games WHERE status = ? OR status = ?'''
             cursor = conn.cursor()
-            cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress))
+            cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS))
             games = cursor.fetchall()
             if not games:
                 msg = f'Hi {nick}. No games are running.'
@@ -814,7 +831,7 @@ def start_bot(conn):
                     game_id: int = game[0]
                     teams: Tuple[str, str] = game[1:3]
                     queue: str = game[3]
-                    game_status: GAME_STATUS = game[4]
+                    game_status: GameStatus = game[4]
                     run_time: int = game[5]
                     bet_window: int = game[6]
                     capt_ids_strs = [team.split()[0] for team in teams]
@@ -824,28 +841,28 @@ def start_bot(conn):
                         capt_nicks = capt_ids_strs
                     cursor = conn.cursor()
                     sql = ''' SELECT prediction, amount FROM wagers WHERE game_id = ? AND result = ? '''
-                    cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
+                    cursor.execute(sql, (game_id, WagerResult.INPROGRESS))
                     wagers = cursor.fetchall()
-                    total_amounts = {GAME_STATUS.Team1: 0, GAME_STATUS.Team2: 0, GAME_STATUS.Tied: 0}
+                    total_amounts = {GameStatus.TEAM1: 0, GameStatus.TEAM2: 0, GameStatus.TIED: 0}
                     for wager in wagers:
-                        prediction = GAME_STATUS(wager[0])
+                        prediction = GameStatus(wager[0])
                         amount: int = wager[1]
                         total_amounts[prediction] += amount
-                    if game_status == GAME_STATUS.Picking:
+                    if game_status == GameStatus.PICKING:
                         show_str += (f'{queue}: Game {game_id} (Picking): '
                                      f'{capt_nicks[0]} vs '
                                      f'{capt_nicks[1]}\n')
-                    elif game_status == GAME_STATUS.InProgress:
+                    elif game_status == GameStatus.INPROGRESS:
                         if run_time <= bet_window:
                             show_str += (f'{queue}: Game {game_id} ({bet_window - run_time} minutes left to bet): '
-                                         f'{capt_nicks[0]}({total_amounts[GAME_STATUS.Team1]}), '
-                                         f'{capt_nicks[1]}({total_amounts[GAME_STATUS.Team2]}) or '
-                                         f'tied ({total_amounts[GAME_STATUS.Tied]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}), '
+                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]}) or '
+                                         f'tied ({total_amounts[GameStatus.TIED]})\n')
                         else:
                             show_str += (f'{queue}: Game {game_id} (Betting closed): '
-                                         f'{capt_nicks[0]}({total_amounts[GAME_STATUS.Team1]}), '
-                                         f'{capt_nicks[1]}({total_amounts[GAME_STATUS.Team2]}) or '
-                                         f'tied ({total_amounts[GAME_STATUS.Tied]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}), '
+                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]}) or '
+                                         f'tied ({total_amounts[GameStatus.TIED]})\n')
                 if show_str:
                     await ctx.send(show_str)
                     success = True
@@ -1109,8 +1126,8 @@ def start_bot(conn):
             change_nick: str = data[1]
             sql = ''' SELECT team1, team2, queue, status FROM games 
                       WHERE id = ? AND (status = ? OR status = ? OR status = ? OR status = ? OR status = ?) '''
-            values = (game_id, GAME_STATUS.InProgress, GAME_STATUS.Cancelled, GAME_STATUS.Team1,
-                      GAME_STATUS.Team2, GAME_STATUS.Tied)
+            values = (game_id, GameStatus.INPROGRESS, GameStatus.CANCELLED, GameStatus.TEAM1,
+                      GameStatus.TEAM2, GameStatus.TIED)
             cursor = conn.cursor()
             cursor.execute(sql, values)
             game = cursor.fetchone()
@@ -1129,13 +1146,13 @@ def start_bot(conn):
                 old_status = game[3]
                 new_status = None
                 if result in ['1', 'Red', 'red', 'Team1', 'team1', capt_nicks[0]]:
-                    new_status = GAME_STATUS.Team1
+                    new_status = GameStatus.TEAM1
                 elif result in ['2', 'Blue', 'blue', 'Team2', 'team2', capt_nicks[1]]:
-                    new_status = GAME_STATUS.Team2
+                    new_status = GameStatus.TEAM2
                 elif result in ['3', 'Tie', 'tie', 'Tied', 'tied']:
-                    new_status = GAME_STATUS.Tied
+                    new_status = GameStatus.TIED
                 elif result in ['4', 'Cancel', 'cancel', 'Canceled', 'canceled', 'Cancelled', 'cancelled']:
-                    new_status = GAME_STATUS.Cancelled
+                    new_status = GameStatus.CANCELLED
                 else:
                     msg = (f'Hi {change_nick}. Result not understood. You can use 1, 2, Red or Blue or the captain\'s '
                            f'name to select the winning team. Or use 3/Tie/Tied to tie or 4/Cancel/Canceled/Cancelled '
@@ -1146,38 +1163,38 @@ def start_bot(conn):
                         msg = (
                             f'Hi {change_nick}. The game with id {game_id} was already set to {new_status.name}.')
                         await send_dm(user_id, msg)
-                    elif old_status == GAME_STATUS.Cancelled:
+                    elif old_status == GameStatus.CANCELLED:
                         msg = (
                             f'Hi {change_nick}. The game with id {game_id} was previously cancelled. Reviving '
                             f'cancelled games has not been implemented.')
                         await send_dm(user_id, msg)
                     else:
                         # Initialize parameters
-                        total_amounts = {GAME_STATUS.Team1.name: 0, GAME_STATUS.Team2.name: 0, GAME_STATUS.Tied.name: 0}
+                        total_amounts = {GameStatus.TEAM1.name: 0, GameStatus.TEAM2.name: 0, GameStatus.TIED.name: 0}
                         winners = []
                         sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id 
                                   FROM users, wagers 
                                   WHERE game_id = ? AND users.id = wagers.user_id AND result <> ? AND result <> ? '''
                         cursor = conn.cursor()
-                        cursor.execute(sql, (game_id, WAGER_RESULT.Cancelled, WAGER_RESULT.CancelledOneSided))
+                        cursor.execute(sql, (game_id, WagerResult.CANCELLED, WagerResult.CANCELLEDONESIDED))
                         wagers = cursor.fetchall()
                         # Calculate the total amounts bet on each outcome
                         for wager in wagers:
-                            prediction = GAME_STATUS(wager[2]).name
+                            prediction: str = GameStatus(wager[2]).name
                             amount: int = wager[3]
                             total_amounts[prediction] += amount
                         total_amount = sum(total_amounts.values())
-                        if old_status != GAME_STATUS.InProgress:
+                        if old_status != GameStatus.INPROGRESS:
                             # Calculate the payout ratio (0 if no bets on winning outcome)
                             ratio = 0
-                            if old_status == GAME_STATUS.Team1 and total_amounts[GAME_STATUS.Team1.name] > 0:
-                                ratio = total_amount / total_amounts[GAME_STATUS.Team1.name]
-                            elif old_status == GAME_STATUS.Team2 and total_amounts[GAME_STATUS.Team2.name] > 0:
-                                ratio = total_amount / total_amounts[GAME_STATUS.Team2.name]
-                            elif old_status == GAME_STATUS.Tied and total_amounts[GAME_STATUS.Tied.name] > 0:
-                                ratio = total_amount / total_amounts[GAME_STATUS.Tied.name]
-                            # Set the status of the game back to InProgress
-                            finish_game(conn, game_id, GAME_STATUS.InProgress)
+                            if old_status == GameStatus.TEAM1 and total_amounts[GameStatus.TEAM1.name] > 0:
+                                ratio = total_amount / total_amounts[GameStatus.TEAM1.name]
+                            elif old_status == GameStatus.TEAM2 and total_amounts[GameStatus.TEAM2.name] > 0:
+                                ratio = total_amount / total_amounts[GameStatus.TEAM2.name]
+                            elif old_status == GameStatus.TIED and total_amounts[GameStatus.TIED.name] > 0:
+                                ratio = total_amount / total_amounts[GameStatus.TIED.name]
+                            # Set the status of the game back to INPROGRESS
+                            finish_game(conn, game_id, GameStatus.INPROGRESS)
                             # Claw back previous payout
                             for wager in wagers:
                                 wager_id: int = wager[0]
@@ -1189,18 +1206,18 @@ def start_bot(conn):
                                 if ratio == 0:
                                     transfer = (user_id, bot_user_id, amount)
                                     create_transfer(conn, transfer)
-                                    wager_result(conn, wager_id, WAGER_RESULT.InProgress)
+                                    wager_result(conn, wager_id, WagerResult.INPROGRESS)
                                     msg = (f'Hi {nick}. The result of game {game_id}, between '
                                            f'{" and ".join(capt_nicks)}, was changed. Your previously returned bet of '
                                            f'{amount} shazbucks has been placed again.')
                                     await send_dm(user_id, msg)
                                 elif prediction == old_status:
                                     win_amount = round(amount * ratio)
-                                    if prediction == GAME_STATUS.Tied:
+                                    if prediction == GameStatus.TIED:
                                         win_amount = win_amount * TIE_PAYOUT_SCALE
                                     transfer = (user_id, bot_user_id, win_amount)
                                     create_transfer(conn, transfer)
-                                    wager_result(conn, wager_id, WAGER_RESULT.InProgress)
+                                    wager_result(conn, wager_id, WagerResult.INPROGRESS)
                                     msg = (f'Hi {nick}. The result of game {game_id}, between '
                                            f'{" and ".join(capt_nicks)}, was changed. Your previous payout of '
                                            f'{win_amount} shazbucks has been clawed back.')
@@ -1208,15 +1225,15 @@ def start_bot(conn):
                                     winner = await get_nick_from_discord_id(str(discord_id))
                                     winners.append((winner, win_amount))
                                 else:
-                                    wager_result(conn, wager_id, WAGER_RESULT.InProgress)
+                                    wager_result(conn, wager_id, WagerResult.INPROGRESS)
                                     msg = (f'Hi {nick}. The result of game {game_id}, between '
                                            f'{" and ".join(capt_nicks)}, was changed. Your previously lost bet of '
                                            f'{amount} shazbucks has been placed again.')
                                     await send_dm(user_id, msg)
                             result_msg = ''
-                            if (old_status == GAME_STATUS.Team1 or
-                                    old_status == GAME_STATUS.Team2 or
-                                    old_status == GAME_STATUS.Tied):
+                            if (old_status == GameStatus.TEAM1 or
+                                    old_status == GameStatus.TEAM2 or
+                                    old_status == GameStatus.TIED):
                                 if ratio == 0:
                                     if total_amount > 0:
                                         result_msg = (f'The result of game {game_id}, between '
@@ -1239,9 +1256,9 @@ def start_bot(conn):
                         total_amounts, winners = await resolve_wagers(game_id, new_status, capt_nicks, True)
                         total_amount = sum(total_amounts.values())
                         result_msg = ''
-                        if (new_status == GAME_STATUS.Team1 or
-                                new_status == GAME_STATUS.Team2 or
-                                new_status == GAME_STATUS.Tied):
+                        if (new_status == GameStatus.TEAM1 or
+                                new_status == GameStatus.TEAM2 or
+                                new_status == GameStatus.TIED):
                             if total_amount == 0:
                                 logger.info(f'Game {game_id} changed by {change_nick} to result: {new_status.name}, '
                                             f'but the game had no bets or all bets were on a single outcome.')
@@ -1267,7 +1284,7 @@ def start_bot(conn):
                                               f'shazbucks.')
                                 logger.info(f'Game {game_id} was changed by {change_nick} to: {new_status.name}. '
                                             f'{winners_str} {verb} paid out a total of {payout} shazbucks.')
-                        elif new_status == GAME_STATUS.Cancelled:
+                        elif new_status == GameStatus.CANCELLED:
                             result_msg = (f'Game {game_id}, between {" and ".join(capt_nicks)}, was cancelled. '
                                           f'All wagers have been returned.')
                             logger.info(f'Game {game_id} was changed by {change_nick} to: {new_status.name}, '
@@ -1324,7 +1341,7 @@ def start_bot(conn):
             nick: str = data[1]
             sql = ''' SELECT queue, team1, team2 FROM games 
                       WHERE id = ? AND status = ? '''
-            values = (game_id, GAME_STATUS.InProgress)
+            values = (game_id, GameStatus.INPROGRESS)
             cursor = conn.cursor()
             cursor.execute(sql, values)
             game = cursor.fetchone()
@@ -1343,13 +1360,13 @@ def start_bot(conn):
                 else:
                     status = None
                     if result in ['1', 'Red', 'red', 'Team1', 'team1', outcome1]:
-                        status = GAME_STATUS.Team1
+                        status = GameStatus.TEAM1
                     elif result in ['2', 'Blue', 'blue', 'Team2', 'team2', outcome2]:
-                        status = GAME_STATUS.Team2
+                        status = GameStatus.TEAM2
                     elif result in ['3', 'Tie', 'tie', 'Tied', 'tied']:
-                        status = GAME_STATUS.Tied
+                        status = GameStatus.TIED
                     elif result in ['4', 'Cancel', 'cancel', 'Canceled', 'canceled', 'Cancelled', 'cancelled']:
-                        status = GAME_STATUS.Cancelled
+                        status = GameStatus.CANCELLED
                     else:
                         msg = (f'Hi {nick}. Result not understood. You can use 1, 2, Red or Blue or the captain\'s name'
                                f' to select the winning outcome. Or use 3/Tie/Tied to tie or '
@@ -1361,7 +1378,7 @@ def start_bot(conn):
                         # Payout based on new result
                         total_amounts, winners = await resolve_wagers(game_id, status, outcomes)
                         result_msg = ''
-                        if status == GAME_STATUS.Team1 or status == GAME_STATUS.Team2 or status == GAME_STATUS.Tied:
+                        if status == GameStatus.TEAM1 or status == GameStatus.TEAM2 or status == GameStatus.TIED:
                             if sum(total_amounts.values()) == 0:
                                 logger.info(f'Custom Game {game_id} ended by {nick} with result: {status.name}, '
                                             f'but the game had no bets. All wagers have been returned.')
@@ -1389,7 +1406,7 @@ def start_bot(conn):
                                               f'shazbucks.')
                                 logger.info(f'Custom Game {game_id} was ended by {nick} to a win for {status.name}.'
                                             f' {winners_str} {verb} paid out a total of {payout} shazbucks.')
-                        elif status == GAME_STATUS.Cancelled:
+                        elif status == GameStatus.CANCELLED:
                             result_msg = (f'The game {game_id}, with possible outcomes {" and ".join(outcomes)} '
                                           f' or a tie was cancelled. All wagers have been returned.')
                             logger.info(f'Custom Game {game_id} ended by {nick} with result: {status.name}, '
@@ -1502,13 +1519,13 @@ def start_bot(conn):
         sql = ''' SELECT id, team1, team2, status FROM games WHERE queue = ? AND (status = ? OR status = ?) 
                   ORDER BY start_time DESC '''
         cursor = conn.cursor()
-        cursor.execute(sql, (queue, GAME_STATUS.Picking, GAME_STATUS.InProgress))
+        cursor.execute(sql, (queue, GameStatus.PICKING, GameStatus.INPROGRESS))
         games = cursor.fetchall()
         if not games:
             logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status in that queue!')
             game = (queue,) + team_id_strs + (BET_WINDOW,)
             game_id = create_game(conn, game)
-            game_status = GAME_STATUS.Picking
+            game_status = GameStatus.PICKING
             logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
         else:
             game_id = 0
@@ -1551,10 +1568,10 @@ def start_bot(conn):
                              f'captains {" and ".join(capt_nicks)} in that queue!')
                 game = (queue,) + team_id_strs + (BET_WINDOW,)
                 game_id = create_game(conn, game)
-                game_status = GAME_STATUS.Picking
+                game_status = GameStatus.PICKING
                 logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
         # Cancel wagers if there is a repick
-        if game_status == GAME_STATUS.InProgress:
+        if game_status == GameStatus.INPROGRESS:
             await cancel_wagers(game_id, 'a repick')
         # Update database and log
         pick_game(conn, game_id, team_id_strs)
@@ -1594,7 +1611,7 @@ def start_bot(conn):
         success = False
         # Find the game that was just cancelled
         cursor = conn.cursor()
-        cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GAME_STATUS.Picking,))
+        cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GameStatus.PICKING,))
         games = cursor.fetchall()
         if not games:
             logger.error('Game cancelled, but no game with Picking status, not sure what game to cancel!')
@@ -1614,15 +1631,15 @@ def start_bot(conn):
             description = message.embeds[0].description
         [result, duration] = description.split('\n')
         duration = int(duration.split(' ')[1])
-        game_result = GAME_STATUS.Tied if 'Tie' in result else None
+        game_result = GameStatus.TIED if 'Tie' in result else None
         winner_nick = ''
         winner_id = 0
         total_amounts = {}
         winners = []
         # Find the game that just finished
         game_id = 0
-        if game_result == GAME_STATUS.Tied:
-            game_values = (queue, GAME_STATUS.InProgress, duration, DURATION_TOLERANCE)
+        if game_result == GameStatus.TIED:
+            game_values = (queue, GameStatus.INPROGRESS, duration, DURATION_TOLERANCE)
             sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
                       * 24 * 60) AS INTEGER)), team1, team2 
                       FROM games 
@@ -1632,7 +1649,7 @@ def start_bot(conn):
             winner_nick = " ".join(result.split(' ')[2:])
             winner_id = (await query_members(winner_nick)).id
             winner_id_str = str(winner_id)
-            game_values = (queue, GAME_STATUS.InProgress, winner_id_str + '%', winner_id_str + '%')
+            game_values = (queue, GameStatus.INPROGRESS, winner_id_str + '%', winner_id_str + '%')
             sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
                       * 24 * 60) AS INTEGER)),team1, team2 FROM games 
                       WHERE queue = ? AND status = ? AND (team1 LIKE ? OR team2 LIKE ?) '''
@@ -1640,7 +1657,7 @@ def start_bot(conn):
         cursor.execute(sql, game_values)
         games = cursor.fetchall()
         if not games:
-            if game_result == GAME_STATUS.Tied:
+            if game_result == GameStatus.TIED:
                 game_result = None
                 logger.error(f'Game finished with a tie in {queue} queue, but no game with InProgress status and '
                              f'correct time in that queue.')
@@ -1678,11 +1695,11 @@ def start_bot(conn):
             capt_ids = [teams[0][0].id, teams[1][0].id]
             capt_nicks = [teams[0][0].display_name, teams[1][0].display_name]
             # Establish result if not tied
-            if game_result != GAME_STATUS.Tied:
+            if game_result != GameStatus.TIED:
                 if winner_id == capt_ids[0]:
-                    game_result = GAME_STATUS.Team1
+                    game_result = GameStatus.TEAM1
                 elif winner_id == capt_ids[1]:
-                    game_result = GAME_STATUS.Team2
+                    game_result = GameStatus.TEAM2
                 else:
                     game_result = 0
                     logger.error(f'Winner {winner_nick} ({winner_id}) not found in game {game_id}: {capt_nicks[0]} '
@@ -1709,9 +1726,9 @@ def start_bot(conn):
                             team_rating.append(Rating())
                     team_ratings += (team_rating,)
                 ranks = [0, 0]
-                if game_result == GAME_STATUS.Team1:
+                if game_result == GameStatus.TEAM1:
                     ranks = [0, 1]
-                elif game_result == GAME_STATUS.Team2:
+                elif game_result == GameStatus.TEAM2:
                     ranks = [1, 0]
                 new_team_ratings = rate([team_ratings[0], team_ratings[1]], ranks)
                 for team_idx, team in enumerate(teams):
@@ -1729,9 +1746,9 @@ def start_bot(conn):
             result_msg = '\'ERROR: Game not found\''
         elif game_result == 0:
             result_msg = '\'ERROR: Winner not found\''
-        elif (game_result == GAME_STATUS.Team1 or
-              game_result == GAME_STATUS.Team2 or
-              game_result == GAME_STATUS.Tied):
+        elif (game_result == GameStatus.TEAM1 or
+              game_result == GameStatus.TEAM2 or
+              game_result == GameStatus.TIED):
             if sum(total_amounts.values()) == 0:
                 logger.info(f'Game {game_id} finished with result: {game_result.name}, but the game had no bets.')
             elif total_amounts[game_result.name] == 0:
@@ -1765,31 +1782,31 @@ def start_bot(conn):
             winner
         """
         # Initialize parameters
-        total_amounts = {GAME_STATUS.Team1.name: 0, GAME_STATUS.Team2.name: 0, GAME_STATUS.Tied.name: 0}
+        total_amounts = {GameStatus.TEAM1.name: 0, GameStatus.TEAM2.name: 0, GameStatus.TIED.name: 0}
         winners = []
         # Find wagers on this game
         sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id FROM users, wagers 
                   WHERE game_id = ? AND users.id = wagers.user_id AND result = ? '''
         cursor = conn.cursor()
-        cursor.execute(sql, (game_id, WAGER_RESULT.InProgress))
+        cursor.execute(sql, (game_id, WagerResult.INPROGRESS))
         wagers = cursor.fetchall()
         # Calculate the total amounts bet on each outcome
         for wager in wagers:
-            prediction = GAME_STATUS(wager[2]).name
+            prediction: str = GameStatus(wager[2]).name
             amount: int = wager[3]
             total_amounts[prediction] += amount
         # Calculate the payout ratio (0 if no bets on winning outcome, 1.0 if only bets on winning outcome)
         total_amount = sum(total_amounts.values())
-        if game_result == GAME_STATUS.Cancelled:
+        if game_result == GameStatus.CANCELLED:
             ratio = -1
         else:
             ratio = 0
-            if game_result == GAME_STATUS.Team1 and total_amounts[GAME_STATUS.Team1.name] > 0:
-                ratio = total_amount / total_amounts[GAME_STATUS.Team1.name]
-            elif game_result == GAME_STATUS.Team2 and total_amounts[GAME_STATUS.Team2.name] > 0:
-                ratio = total_amount / total_amounts[GAME_STATUS.Team2.name]
-            elif game_result == GAME_STATUS.Tied and total_amounts[GAME_STATUS.Tied.name] > 0:
-                ratio = total_amount / total_amounts[GAME_STATUS.Tied.name]
+            if game_result == GameStatus.TEAM1 and total_amounts[GameStatus.TEAM1.name] > 0:
+                ratio = total_amount / total_amounts[GameStatus.TEAM1.name]
+            elif game_result == GameStatus.TEAM2 and total_amounts[GameStatus.TEAM2.name] > 0:
+                ratio = total_amount / total_amounts[GameStatus.TEAM2.name]
+            elif game_result == GameStatus.TIED and total_amounts[GameStatus.TIED.name] > 0:
+                ratio = total_amount / total_amounts[GameStatus.TIED.name]
         # Resolve each individual bet
         for wager in wagers:
             wager_id: int = wager[0]
@@ -1801,7 +1818,7 @@ def start_bot(conn):
             if ratio == -1:
                 transfer = (bot_user_id, user_id, amount)
                 create_transfer(conn, transfer)
-                wager_result(conn, wager_id, WAGER_RESULT.Cancelled)
+                wager_result(conn, wager_id, WagerResult.CANCELLED)
                 if change:
                     msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed: the game was '
                            f'cancelled. Your bet of {amount} shazbucks has been returned to you.')
@@ -1812,7 +1829,7 @@ def start_bot(conn):
             elif ratio == 0:
                 transfer = (bot_user_id, user_id, amount)
                 create_transfer(conn, transfer)
-                wager_result(conn, wager_id, WAGER_RESULT.CancelledNoWinners)
+                wager_result(conn, wager_id, WagerResult.CANCELLEDNOWINNERS)
                 if change:
                     msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. Nobody predicted '
                            f'the correct outcome. Your bet of {amount} shazbucks has been returned to you.')
@@ -1823,7 +1840,7 @@ def start_bot(conn):
             elif ratio == 1.0:
                 transfer = (bot_user_id, user_id, amount)
                 create_transfer(conn, transfer)
-                wager_result(conn, wager_id, WAGER_RESULT.CancelledOneSided)
+                wager_result(conn, wager_id, WagerResult.CANCELLEDONESIDED)
                 if change:
                     msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. Nobody took '
                            f'your bet. Your bet of {amount} shazbucks has been returned to you.')
@@ -1833,11 +1850,11 @@ def start_bot(conn):
                 await send_dm(user_id, msg)
             elif prediction == game_result:
                 win_amount = round(amount * ratio)
-                if prediction == GAME_STATUS.Tied:
+                if prediction == GameStatus.TIED:
                     win_amount = win_amount * TIE_PAYOUT_SCALE
                 transfer = (bot_user_id, user_id, win_amount)
                 create_transfer(conn, transfer)
-                wager_result(conn, wager_id, WAGER_RESULT.Won)
+                wager_result(conn, wager_id, WagerResult.WON)
                 if change:
                     msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. You correctly '
                            f'predicted the new result and have won {win_amount} shazbucks.')
@@ -1848,7 +1865,7 @@ def start_bot(conn):
                 winner = await get_nick_from_discord_id(str(discord_id))
                 winners.append((winner, win_amount))
             else:
-                wager_result(conn, wager_id, WAGER_RESULT.Lost)
+                wager_result(conn, wager_id, WagerResult.LOST)
                 if change:
                     msg = (f'Hi {nick}. The game between {" and ".join(capt_nicks)} was changed. You did not '
                            f'predict the new result correctly and have lost your bet of {amount} shazbucks.')
@@ -1900,7 +1917,7 @@ def start_bot(conn):
         sql = ''' SELECT id, team1, team2 FROM games 
                   WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
         cursor = conn.cursor()
-        cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress, search_str, search_str))
+        cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS, search_str, search_str))
         games = cursor.fetchall()
         if not games:
             logger.error(f'Captain replaced, but no game with {old_capt} as captain and Picking or InProgress '
@@ -1936,7 +1953,7 @@ def start_bot(conn):
         sql = ''' SELECT id, team1, team2, status FROM games 
                   WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
         cursor = conn.cursor()
-        cursor.execute(sql, (GAME_STATUS.Picking, GAME_STATUS.InProgress, search_str, search_str))
+        cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS, search_str, search_str))
         games = cursor.fetchall()
         if not games:
             logger.error(f'Player {old_player} substituted with {new_player}, but no game with that player and '
@@ -1953,14 +1970,14 @@ def start_bot(conn):
             if old_player_id_str in team1:
                 teams = (team1.replace(old_player_id_str, new_player_id_str), team2)
                 update_teams(conn, game_id, teams)
-                if status == GAME_STATUS.InProgress:
+                if status == GameStatus.INPROGRESS:
                     await cancel_wagers(game_id, 'a player substitution')
                 logger.info(f'Player {old_player} replaced by {new_player} in game {game_id}.')
                 success = True
             elif old_player_id_str in team2:
                 teams = (team1, team2.replace(old_player_id_str, new_player_id_str))
                 update_teams(conn, game_id, teams)
-                if status == GAME_STATUS.InProgress:
+                if status == GameStatus.INPROGRESS:
                     await cancel_wagers(game_id, 'a player substitution')
                 logger.info(f'Player {old_player} replaced by {new_player} in game {game_id}.')
                 success = True
@@ -1973,7 +1990,7 @@ def start_bot(conn):
         player2_id_str = str((await query_members(player2)).id)
         search_str1 = f'%{player1_id_str}%'
         search_str2 = f'%{player2_id_str}%'
-        values = (GAME_STATUS.InProgress, search_str1, search_str2, search_str2, search_str1)
+        values = (GameStatus.INPROGRESS, search_str1, search_str2, search_str2, search_str1)
         sql = ''' SELECT id, team1, team2 FROM games 
                   WHERE status = ? AND 
                   ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?))'''

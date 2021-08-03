@@ -328,12 +328,12 @@ def create_motd(conn, motd) -> int:
     """Create a new motd into the motds table
 
     :param sqlite3.Connection conn: Connection to the database
-    :param tuple[int,int,int,int] motd: Tuple with the details of the wager
+    :param tuple[int,int,str,int] motd: Tuple with the details of the wager
     :return: The id of the created motd or 0 if an error occurred
     """
-    if len(motd) < 4:
-        motd += (DEFAULT_MOTD_TIME,)
-    sql = ''' INSERT INTO motds(discord_id, channel, start_time, message, end_time)
+    if len(motd) != 4:
+        raise ValueError
+    sql = ''' INSERT INTO motds(discord_id, channel_id, start_time, message, end_time)
               VALUES(?, ?, strftime('%s','now'), ?, strftime('%s','now') + ?) '''
     cur = conn.cursor()
     cur.execute(sql, motd)
@@ -1473,20 +1473,21 @@ def start_bot(conn):
     @bot.group(name='motd', help='Message of the Day commands', pass_context=True, invoke_without_command=True)
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def motd(ctx):
+    async def cmd_motd(ctx):
         if ctx.invoked_subcommand is None:
             await ctx.message.add_reaction(REACTIONS[False])
 
-    @motd.command(name='create', help='Create a new Message of the Day')
+    @cmd_motd.command(name='create', help='Create a new Message of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def create(ctx, duration: typing.Optional[TimeDuration] = DEFAULT_MOTD_TIME, *, motd_message: str):
+    async def cmd_motd_create(ctx, duration: typing.Optional[TimeDuration] = DEFAULT_MOTD_TIME, *, motd_message: str):
         success = False
-        await ctx.channel.send(f'New MOTD message: {motd_message} with duration {duration.to_seconds} seconds')
-        success = True
+        motd = (ctx.message.author.id, ctx.channel.id, motd_message, duration.to_seconds)
+        if create_motd(conn, motd):
+            success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @motd.command(name='show', help='Show current Messages of the Day')
+    @cmd_motd.command(name='show', help='Show current Messages of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def show(ctx):

@@ -77,6 +77,26 @@ def caseless_equal(left, right):
     return normalize_caseless(left) == normalize_caseless(right)
 
 
+class TimeDuration:
+    SECONDS_PER_UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+    def __init__(self, value: int, unit: str):
+        self.value = value
+        self.unit = unit
+
+    @classmethod
+    async def convert(cls, ctx, argument):
+        if type(argument) == str and len(argument) > 1:
+            unit = argument[-1]
+            if unit in TimeDuration.SECONDS_PER_UNIT and argument[:-1].isdigit():
+                value = int(argument[:-1])
+                return cls(value, unit)
+
+    @property
+    def to_seconds(self):
+        return self.value * TimeDuration.SECONDS_PER_UNIT[self.unit]
+
+
 def create_user(conn, user) -> int:
     """Create a new user into the users table
 
@@ -1451,16 +1471,16 @@ def start_bot(conn):
     @motd.command(name='create', help='Create a new Message of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def create(ctx, motd_message: str):
+    async def create(ctx, duration: typing.Optional[TimeDuration] = TimeDuration(1, 'd'), *, motd_message: str):
         success = False
-        await ctx.channel.send(f'New MOTD message: {motd_message}')
+        await ctx.channel.send(f'New MOTD message: {motd_message} with duration {duration.to_seconds} seconds')
         success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @motd.command(name='list', help='List current Messages of the Day')
+    @motd.command(name='show', help='Show current Messages of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def create(ctx):
+    async def show(ctx):
         success = False
         # TODO: send DM with current MOTDs
         success = True

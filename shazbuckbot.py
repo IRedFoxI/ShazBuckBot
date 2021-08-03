@@ -68,13 +68,6 @@ RETRY_WAIT = 10  # Seconds
 TWITCH_GAME_ID = "517069"  # midair community edition
 TWITCH_CLIENT_ID: str = config['twitch_client_id']
 TWITCH_AUTH_ACCESS_TOKEN: str = config['twitch_auth_access_token']
-DEFAULT_MOTD_TIME = 60 * 60 * 24
-
-
-def caseless_equal(left, right):
-    def normalize_caseless(text):
-        return unicodedata.normalize("NFKD", text.casefold())
-    return normalize_caseless(left) == normalize_caseless(right)
 
 
 class TimeDuration:
@@ -84,6 +77,9 @@ class TimeDuration:
         self.value = value
         self.unit = unit
 
+    def __str__(self):
+        return f'{str(self.value)}{self.unit}'
+
     @classmethod
     async def convert(cls, ctx, argument):
         if type(argument) == str and len(argument) > 1:
@@ -91,10 +87,23 @@ class TimeDuration:
             if unit in TimeDuration.SECONDS_PER_UNIT and argument[:-1].isdigit():
                 value = int(argument[:-1])
                 return cls(value, unit)
+            else:
+                raise commands.BadArgument('Incorrect string format for TimeDuration.')
+        else:
+            raise commands.BadArgument('No string or too short for TimeDuration.')
 
     @property
     def to_seconds(self):
         return self.value * TimeDuration.SECONDS_PER_UNIT[self.unit]
+
+
+DEFAULT_MOTD_TIME = TimeDuration(1, 'd')
+
+
+def caseless_equal(left, right):
+    def normalize_caseless(text):
+        return unicodedata.normalize("NFKD", text.casefold())
+    return normalize_caseless(left) == normalize_caseless(right)
 
 
 def create_user(conn, user) -> int:
@@ -1471,7 +1480,7 @@ def start_bot(conn):
     @motd.command(name='create', help='Create a new Message of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def create(ctx, duration: typing.Optional[TimeDuration] = TimeDuration(1, 'd'), *, motd_message: str):
+    async def create(ctx, duration: typing.Optional[TimeDuration] = DEFAULT_MOTD_TIME, *, motd_message: str):
         success = False
         await ctx.channel.send(f'New MOTD message: {motd_message} with duration {duration.to_seconds} seconds')
         success = True

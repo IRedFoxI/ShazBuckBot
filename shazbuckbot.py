@@ -1441,6 +1441,31 @@ def start_bot(conn):
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
+    @bot.group(name='motd', help='Message of the Day commands', pass_context=True, invoke_without_command=True)
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def motd(ctx):
+        if ctx.invoked_subcommand is None:
+            await ctx.message.add_reaction(REACTIONS[False])
+
+    @motd.command(name='create', help='Create a new Message of the Day')
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def create(ctx, motd_message: str):
+        success = False
+        await ctx.channel.send(f'New MOTD message: {motd_message}')
+        success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
+    @motd.command(name='list', help='List current Messages of the Day')
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def create(ctx):
+        success = False
+        # TODO: send DM with current MOTDs
+        success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
     async def game_begun(message: discord.Message):
         queue = message.content.split("'")[1]
         description = ''
@@ -1602,8 +1627,7 @@ def start_bot(conn):
         #               f' or Tie ({draw_chance:.1%}).')
         team1_win_chance = global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
         team2_win_chance = 1 - team1_win_chance
-        result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%}).'
-                      f' Payout for betting on ties is {TIE_PAYOUT_SCALE:.0%}.')
+        result_msg = f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%}).'
         await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 

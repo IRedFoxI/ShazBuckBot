@@ -1697,14 +1697,9 @@ def start_bot(conn):
                 else:
                     team_rating.append(Rating())
             team_ratings.append(team_rating)
-        # draw_chance = quality(team_ratings)
         delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
         sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
         size = len(team_ratings[0]) + len(team_ratings[1])
-        # team1_win_chance = (1 - draw_chance) * global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
-        # team2_win_chance = 1 - draw_chance - team1_win_chance
-        # result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%})'
-        #               f' or Tie ({draw_chance:.1%}).')
         team1_win_chance = global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
         team2_win_chance = 1 - team1_win_chance
         result_msg = f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%}).'

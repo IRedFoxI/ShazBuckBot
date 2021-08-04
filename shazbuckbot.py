@@ -843,8 +843,17 @@ def start_bot(conn):
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
-            user_id: int = data[0]
-            nick: str = data[1]
+            show_str = ''
+            # Add MOTDs
+            sql = ''' SELECT message FROM motds 
+                      WHERE (channel_id = 0 OR channel_id = ?) AND end_time > strftime('%s','now') '''
+            cursor = conn.cursor()
+            cursor.execute(sql, (ctx.channel.id,))
+            motds = cursor.fetchall()
+            if motds:
+                for motd in motds:
+                    show_str += f'MOTD: {motd[0]}\n'
+            # Find running games
             sql = ''' SELECT id, team1, team2, queue, status, 
                       CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER),
                       bet_window
@@ -853,10 +862,8 @@ def start_bot(conn):
             cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS))
             games = cursor.fetchall()
             if not games:
-                msg = f'Hi {nick}. No games are running.'
-                await send_dm(user_id, msg)
+                show_str += f'No games are running'
             else:
-                show_str = ''
                 for game in games:
                     game_id: int = game[0]
                     teams: Tuple[str, str] = game[1:3]
@@ -893,9 +900,8 @@ def start_bot(conn):
                                          f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}), '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]}) or '
                                          f'tied ({total_amounts[GameStatus.TIED]})\n')
-                if show_str:
-                    await ctx.send(show_str)
-                    success = True
+            success = True
+            await ctx.send(show_str)
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='top5', help='Show the top 5 players')

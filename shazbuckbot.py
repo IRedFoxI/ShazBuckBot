@@ -1480,9 +1480,14 @@ def start_bot(conn):
     @cmd_motd.command(name='create', help='Create a new Message of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_motd_create(ctx, duration: typing.Optional[TimeDuration] = DEFAULT_MOTD_TIME, *, motd_message: str):
+    async def cmd_motd_create(ctx, all_channels: typing.Optional[bool] = False,
+                              duration: typing.Optional[TimeDuration] = DEFAULT_MOTD_TIME, *, motd_message: str):
         success = False
-        motd = (ctx.message.author.id, ctx.channel.id, motd_message, duration.to_seconds)
+        author_id = ctx.message.author.id
+        channel_id = ctx.channel.id
+        if all_channels != 0 and author_id == REDFOX_DISCORD_ID:
+            channel_id = 0
+        motd = (author_id, channel_id, motd_message, duration.to_seconds)
         if create_motd(conn, motd):
             success = True
         await ctx.message.add_reaction(REACTIONS[success])

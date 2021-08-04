@@ -7,6 +7,7 @@ import os
 import re
 import time
 import typing
+from datetime import datetime
 from itertools import combinations, chain
 from math import sqrt, floor
 
@@ -1492,13 +1493,37 @@ def start_bot(conn):
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @cmd_motd.command(name='show', help='Show current Messages of the Day')
+    @cmd_motd.command(name='list', help='Show current Messages of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def show(ctx):
+    async def cmd_motd_list(ctx):
         success = False
-        # TODO: send DM with current MOTDs
-        success = True
+        requestor = ctx.message.author
+        if requestor.id == REDFOX_DISCORD_ID:
+            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE (channel_id = ? or channel_id = 0) AND end_time > strftime('%s','now') '''
+        else:
+            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE channel_id = ? AND end_time > strftime('%s','now') '''
+        cursor = conn.cursor()
+        cursor.execute(sql, (ctx.channel.id,))
+        motds = cursor.fetchall()
+        if motds:
+            for motd in motds:
+                motd_id: int = motd[0]
+                author_id: int = motd[1]
+                channel_id: int = motd[2]
+                start_time: int = motd[3]
+                end_time: int = motd[4]
+                motd_message: str = motd[5]
+                author_nick = await get_nick_from_discord_id(str(author_id))
+                motd_info = (f'MOTD {motd_id} set by {author_nick} {"on all channels " if channel_id == 0 else ""}'
+                             f'on {datetime.utcfromtimestamp(start_time)} and '
+                             f'to expire on {datetime.utcfromtimestamp(end_time)}:\n{motd_message}')
+                await asyncio.sleep(DM_TIME_TO_WAIT)
+                await requestor.create_dm()
+                await requestor.dm_channel.send(motd_info)
+            success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
     async def game_begun(message: discord.Message):

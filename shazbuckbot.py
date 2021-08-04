@@ -1526,6 +1526,26 @@ def start_bot(conn):
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
+    @cmd_motd.command(name='end', help='Show current Messages of the Day')
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_motd_list(ctx, motd_id: int):
+        success = False
+        requestor = ctx.message.author
+        if requestor.id == REDFOX_DISCORD_ID:
+            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE id = ? AND (channel_id = ? or channel_id = 0) AND end_time > strftime('%s','now') '''
+        else:
+            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE id = ? AND channel_id = ? AND end_time > strftime('%s','now') '''
+        cursor = conn.cursor()
+        cursor.execute(sql, (motd_id, ctx.channel.id))
+        motd = cursor.fetchone()
+        if motd:
+            end_motd(conn, motd_id)
+            success = True
+        await ctx.message.add_reaction(REACTIONS[success])
+
     async def game_begun(message: discord.Message):
         queue = message.content.split("'")[1]
         description = ''

@@ -82,7 +82,7 @@ class TimeDuration:
         return f'{str(self.value)}{self.unit}'
 
     @classmethod
-    async def convert(cls, ctx, argument):
+    async def convert(cls, _ctx, argument):
         if type(argument) == str and len(argument) > 1:
             unit = argument[-1]
             if unit in TimeDuration.SECONDS_PER_UNIT and argument[:-1].isdigit():

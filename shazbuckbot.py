@@ -347,7 +347,7 @@ def end_motd(conn, motd_id) -> None:
     :param sqlite3.Connection conn: Connection to the database
     :param int motd_id: The id of the motd to be ended
     """
-    sql = ''' UPDATE motd SET end_time = strftime('%s','now') WHERE id = ? '''
+    sql = ''' UPDATE motds SET end_time = strftime('%s','now') WHERE id = ? '''
     cur = conn.cursor()
     cur.execute(sql, (motd_id,))
     conn.commit()

@@ -1495,12 +1495,21 @@ def start_bot(conn):
         streams = response.json()
         if streams['data']:
             embed: discord.Embed = discord.Embed(title="", description="", color=discord.Color(8192255))
+            user_names = []
+            total_viewer_count = 0
             for stream in streams['data']:
                 stream_name = (f"{str(stream['viewer_count'])}<:z_1:771957560005099530> {str(stream['user_name'])} - "
                                f"{str(stream['title'])}")
                 stream_link = "https://www.twitch.tv/" + str(stream['user_name'])
                 stream_url = "[twitch.tv/" + str(stream['user_name']) + "](" + stream_link + ")"
                 embed.add_field(name=stream_name, value=stream_url, inline=False)
+                total_viewer_count += int(stream['viewer_count'])
+                user_names.append(str(stream['user_name']))
+            if len(user_names) > 1:
+                multi_stream_name = f'{str(total_viewer_count)}<:z_1:771957560005099530> Multi stream'
+                multi_stream_link = f'https://multistre.am/{"/".join(user_names)}'
+                multi_stream_url = "[multistre.am/" + "/".join(user_names) + "](" + multi_stream_link + ")"
+                embed.add_field(name=multi_stream_name, value=multi_stream_url, inline=False)
             await ctx.channel.send(embed=embed)
             success = True
         await ctx.message.add_reaction(REACTIONS[success])

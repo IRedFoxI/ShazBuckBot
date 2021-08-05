@@ -354,6 +354,34 @@ def end_motd(conn, motd_id) -> None:
     conn.commit()
 
 
+def calculate_win_chance(conn, team_id_strs) -> float:
+    """Calculate the chance for the first team to win
+
+    :param sqlite3.Connection conn: Connection to the database
+    :param tuple[str,str] team_id_strs: Tuple of strings of discord ids of players on each team
+    :return: Chance for the first team to win
+    """
+    team_ratings = []
+    for team_id_str in team_id_strs:
+        team_rating = []
+        for player_id in team_id_str.split():
+            sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
+                      FROM trueskills WHERE discord_id = ? ) '''
+            values = (int(player_id), int(player_id))
+            cursor = conn.cursor()
+            cursor.execute(sql, values)
+            data = cursor.fetchone()
+            if data:
+                team_rating.append(Rating(data[0], data[1]))
+            else:
+                team_rating.append(Rating())
+        team_ratings.append(team_rating)
+    delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
+    sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
+    size = len(team_ratings[0]) + len(team_ratings[1])
+    return global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
+
+
 def init_db(conn) -> None:
     """Initialize a new database
 
@@ -1688,27 +1716,9 @@ def start_bot(conn):
         pick_game(conn, game_id, team_id_strs)
         logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
         # Estimate chances
-        team_ratings = []
-        for team_id_str in team_id_strs:
-            team_rating = []
-            for player_id in team_id_str.split():
-                sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
-                                          FROM trueskills WHERE discord_id = ? ) '''
-                values = (int(player_id), int(player_id))
-                cursor = conn.cursor()
-                cursor.execute(sql, values)
-                data = cursor.fetchone()
-                if data:
-                    team_rating.append(Rating(data[0], data[1]))
-                else:
-                    team_rating.append(Rating())
-            team_ratings.append(team_rating)
-        delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
-        sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
-        size = len(team_ratings[0]) + len(team_ratings[1])
-        team1_win_chance = global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
-        team2_win_chance = 1 - team1_win_chance
-        result_msg = f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 ({team2_win_chance:.1%}).'
+        team1_win_chance = calculate_win_chance(conn, team_id_strs)
+        result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                      f'({(1 - team1_win_chance):.1%}).')
         await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 
@@ -2072,6 +2082,7 @@ def start_bot(conn):
             team1: str = games[-1][1]
             team2: str = games[-1][2]
             status: int = games[-1][3]
+            teams = ('', '')
             if old_player_id_str in team1:
                 teams = (team1.replace(old_player_id_str, new_player_id_str), team2)
                 update_teams(conn, game_id, teams)
@@ -2086,6 +2097,14 @@ def start_bot(conn):
                     await cancel_wagers(game_id, 'a player substitution')
                 logger.info(f'Player {old_player} replaced by {new_player} in game {game_id}.')
                 success = True
+            else:
+                logger.error(f'Player {new_player} replaced {old_player}, and found game {game_id} with those players '
+                             f'and PICKING or INPROGRESS status, but something went wrong!')
+            if success and status == GameStatus.INPROGRESS:
+                team1_win_chance = calculate_win_chance(conn, teams)
+                result_msg = (f'Player subbed, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                              f'({(1 - team1_win_chance):.1%}).')
+                await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[success])
 
     async def swap_player(message):
@@ -2113,6 +2132,7 @@ def start_bot(conn):
             game_id: int = games[-1][0]
             team1: str = games[-1][1]
             team2: str = games[-1][2]
+            teams = ('', '')
             if player1_id_str in team1 and player2_id_str in team2:
                 teams = (team1.replace(player1_id_str, player2_id_str), team2.replace(player2_id_str, player1_id_str))
                 update_teams(conn, game_id, teams)
@@ -2128,6 +2148,11 @@ def start_bot(conn):
             else:
                 logger.error(f'Player {player1} and {player2} swapped, and found game {game_id} with those players '
                              f'and InProgress status, but something went wrong!')
+            if success:
+                team1_win_chance = calculate_win_chance(conn, teams)
+                result_msg = (f'Player swapped, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                              f'({(1 - team1_win_chance):.1%}).')
+                await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[success])
 
     @bot.event

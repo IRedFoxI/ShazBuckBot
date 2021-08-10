@@ -354,20 +354,55 @@ def end_motd(conn, motd_id) -> None:
     conn.commit()
 
 
-def calculate_win_chance(conn, team_id_strs) -> float:
+def suggest_even_teams(conn, player_ids) -> (list[int], list[int], float):
+    """Suggest even teams based on TrueSkill ratings
+
+    :param sqlite3.Connection conn: Connection to the database
+    :param list[int] player_ids: List of discord ids
+    :return: Two lists of discord ids and the chance to draw
+    """
+    player_ratings = {}
+    for player_id in player_ids:
+        sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
+                  FROM trueskills WHERE discord_id = ? ) '''
+        values = (player_id, player_id)
+        cursor = conn.cursor()
+        cursor.execute(sql, values)
+        data = cursor.fetchone()
+        if data:
+            player_ratings[player_id] = Rating(data[0], data[1])
+        else:
+            player_ratings[player_id] = Rating()
+    best_team1_ids = []
+    best_team2_ids = []
+    best_chance_to_draw = 0
+    for c in combinations(player_ids, floor(len(player_ids) / 2)):
+        team1_ids = list(c)
+        team2_ids = [x for x in player_ids if x not in team1_ids]
+        team1_rating = [player_ratings[i] for i in team1_ids]
+        team2_rating = [player_ratings[i] for i in team2_ids]
+        chance_to_draw = quality([team1_rating, team2_rating])
+        if chance_to_draw > best_chance_to_draw:
+            best_team1_ids = team1_ids
+            best_team2_ids = team2_ids
+            best_chance_to_draw = chance_to_draw
+    return best_team1_ids, best_team2_ids, best_chance_to_draw
+
+
+def calculate_win_chance(conn, teams_ids) -> float:
     """Calculate the chance for the first team to win
 
     :param sqlite3.Connection conn: Connection to the database
-    :param tuple[str,str] team_id_strs: Tuple of strings of discord ids of players on each team
+    :param tuple[list[int], list[int]] teams_ids: Tuple of Lists of discord ids of players on each team
     :return: Chance for the first team to win
     """
     team_ratings = []
-    for team_id_str in team_id_strs:
+    for team_ids in teams_ids:
         team_rating = []
-        for player_id in team_id_str.split():
+        for player_id in team_ids:
             sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
                       FROM trueskills WHERE discord_id = ? ) '''
-            values = (int(player_id), int(player_id))
+            values = (player_id, player_id)
             cursor = conn.cursor()
             cursor.execute(sql, values)
             data = cursor.fetchone()
@@ -1615,30 +1650,7 @@ def start_bot(conn):
         game = (queue,) + team_id_strs + (BET_WINDOW,)
         game_id = create_game(conn, game)
         logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
-        player_ratings = {}
-        for player_id in player_ids:
-            sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
-                      FROM trueskills WHERE discord_id = ? ) '''
-            values = (player_id, player_id)
-            cur.execute(sql, values)
-            data = cur.fetchone()
-            if data:
-                player_ratings[player_id] = Rating(data[0], data[1])
-            else:
-                player_ratings[player_id] = Rating()
-        best_team1_ids = []
-        best_team2_ids = []
-        best_chance_to_draw = 0
-        for c in combinations(player_ids, floor(len(player_ids)/2)):
-            team1_ids = list(c)
-            team2_ids = [x for x in player_ids if x not in team1_ids]
-            team1_rating = [player_ratings[i] for i in team1_ids]
-            team2_rating = [player_ratings[i] for i in team2_ids]
-            chance_to_draw = quality([team1_rating, team2_rating])
-            if chance_to_draw > best_chance_to_draw:
-                best_team1_ids = team1_ids
-                best_team2_ids = team2_ids
-                best_chance_to_draw = chance_to_draw
+        best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(conn, player_ids)
         team1_str = '<@!' + '>, <@!'.join([str(i) for i in best_team1_ids]) + '>'
         team2_str = '<@!' + '>, <@!'.join([str(i) for i in best_team2_ids]) + '>'
         result_msg = f'Suggested teams: {team1_str} versus {team2_str} ({best_chance_to_draw:.1%} chance to draw).'
@@ -1725,7 +1737,9 @@ def start_bot(conn):
         pick_game(conn, game_id, team_id_strs)
         logger.info(f'Game {game_id} picked in the {queue} queue: {" versus ".join(team_strs)}')
         # Estimate chances
-        team1_win_chance = calculate_win_chance(conn, team_id_strs)
+        team1_ids = [int(i) for i in team_id_strs[0].split()]
+        team2_ids = [int(i) for i in team_id_strs[1].split()]
+        team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
         result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
                       f'({(1 - team1_win_chance):.1%}).')
         await message.channel.send(result_msg)
@@ -2109,11 +2123,23 @@ def start_bot(conn):
             else:
                 logger.error(f'Player {new_player} replaced {old_player}, and found game {game_id} with those players '
                              f'and PICKING or INPROGRESS status, but something went wrong!')
-            if success and status == GameStatus.INPROGRESS:
-                team1_win_chance = calculate_win_chance(conn, teams)
-                result_msg = (f'Player subbed, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
-                              f'({(1 - team1_win_chance):.1%}).')
-                await message.channel.send(result_msg)
+            team1_ids = [int(i) for i in teams[0].split()]
+            team2_ids = [int(i) for i in teams[1].split()]
+            if success:
+                if status == GameStatus.INPROGRESS:
+                    team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
+                    result_msg = (f'Player subbed, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                                  f'({(1 - team1_win_chance):.1%}).')
+                    await message.channel.send(result_msg)
+                else:
+                    player_ids = team1_ids
+                    player_ids.insert[1:1] = team2_ids
+                    best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(conn, player_ids)
+                    team1_str = '<@!' + '>, <@!'.join([str(i) for i in best_team1_ids]) + '>'
+                    team2_str = '<@!' + '>, <@!'.join([str(i) for i in best_team2_ids]) + '>'
+                    result_msg = (f'Suggested teams: {team1_str} versus {team2_str} ({best_chance_to_draw:.1%} chance '
+                                  f'to draw).')
+                    await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[success])
 
     async def swap_player(message):
@@ -2158,7 +2184,9 @@ def start_bot(conn):
                 logger.error(f'Player {player1} and {player2} swapped, and found game {game_id} with those players '
                              f'and InProgress status, but something went wrong!')
             if success:
-                team1_win_chance = calculate_win_chance(conn, teams)
+                team1_ids = [int(i) for i in teams[0].split()]
+                team2_ids = [int(i) for i in teams[1].split()]
+                team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
                 result_msg = (f'Player swapped, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
                               f'({(1 - team1_win_chance):.1%}).')
                 await message.channel.send(result_msg)

@@ -2132,8 +2132,8 @@ def start_bot(conn):
                                   f'({(1 - team1_win_chance):.1%}).')
                     await message.channel.send(result_msg)
                 else:
-                    player_ids = team1_ids
-                    player_ids.insert[1:1] = team2_ids
+                    player_ids = [team1_ids[0], team2_ids[0]]
+                    player_ids.extend(team1_ids[1:])
                     best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(conn, player_ids)
                     team1_str = '<@!' + '>, <@!'.join([str(i) for i in best_team1_ids]) + '>'
                     team2_str = '<@!' + '>, <@!'.join([str(i) for i in best_team2_ids]) + '>'

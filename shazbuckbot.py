@@ -1668,7 +1668,7 @@ def start_bot(conn):
         for team_str in team_strs:
             id_strs = []
             players = team_str.split(': ')
-            players[1:2] = players[1].split(', ')
+            players[1:] = ': '.join(players[1:]).split(', ')
             for nick in players:
                 member = await query_members(nick)
                 if member:

@@ -1667,7 +1667,8 @@ def start_bot(conn):
         team_id_strs: Tuple[str, ...] = ()
         for team_str in team_strs:
             id_strs = []
-            players = team_str.replace(':', ',').split(', ')
+            players = team_str.split(': ')
+            players[1:2] = players[1].split(', ')
             for nick in players:
                 member = await query_members(nick)
                 if member:

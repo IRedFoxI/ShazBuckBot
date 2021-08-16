@@ -354,7 +354,7 @@ def end_motd(conn, motd_id) -> None:
     conn.commit()
 
 
-def suggest_even_teams(conn, player_ids) -> (list[int], list[int], float):
+def suggest_even_teams(conn, player_ids) -> (List[int], List[int], float):
     """Suggest even teams based on TrueSkill ratings
 
     :param sqlite3.Connection conn: Connection to the database

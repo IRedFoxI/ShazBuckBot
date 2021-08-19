@@ -925,7 +925,7 @@ def start_bot(conn):
             cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS))
             games = cursor.fetchall()
             if not games:
-                show_str += f'No games are running'
+                show_str += f'No games are currently walking or running'
             else:
                 for game in games:
                     game_id: int = game[0]

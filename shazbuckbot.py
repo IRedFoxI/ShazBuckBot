@@ -736,7 +736,7 @@ def start_bot(conn):
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='bet', help='Bet shazbucks on a game. Winner should be either the name of the captain '
-                                  'or 1, 2, 3, Red, Blue or Tie. Optionally you can specify the ID of the game.')
+                                  'or 1, 2, Red or Blue. Optionally you can specify the ID of the game.')
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_bet(ctx, winner: str, amount: int, *, game_id=0):
         success = False
@@ -804,10 +804,6 @@ def start_bot(conn):
                             winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
-                        time_since_pick = games[-1][4]
-                    elif winner == "3" or caseless_equal(winner, "Tie"):
-                        prediction += GameStatus.TIED
-                        winner = 'a tie'
                         time_since_pick = games[-1][4]
                     else:
                         for game in games:
@@ -955,14 +951,12 @@ def start_bot(conn):
                     elif game_status == GameStatus.INPROGRESS:
                         if run_time <= bet_window:
                             show_str += (f'{queue}: Game {game_id} ({bet_window - run_time} minutes left to bet): '
-                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}), '
-                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]}) or '
-                                         f'tied ({total_amounts[GameStatus.TIED]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
                             show_str += (f'{queue}: Game {game_id} (Betting closed): '
-                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}), '
-                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]}) or '
-                                         f'tied ({total_amounts[GameStatus.TIED]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
             success = True
             await ctx.send(show_str)
         await ctx.message.add_reaction(REACTIONS[success])

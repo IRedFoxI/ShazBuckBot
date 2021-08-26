@@ -69,6 +69,7 @@ RETRY_WAIT = 10  # Seconds
 TWITCH_GAME_ID = "517069"  # midair community edition
 TWITCH_CLIENT_ID: str = config['twitch_client_id']
 TWITCH_AUTH_ACCESS_TOKEN: str = config['twitch_auth_access_token']
+MIN_NUM_GAMES_FOR_TS = 60
 
 
 class TimeDuration:
@@ -397,24 +398,35 @@ def calculate_win_chance(conn, teams_ids) -> float:
     :return: Chance for the first team to win
     """
     team_ratings = []
+    enough_data = True
     for team_ids in teams_ids:
         team_rating = []
         for player_id in team_ids:
-            sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
-                      FROM trueskills WHERE discord_id = ? ) '''
-            values = (player_id, player_id)
+            sql = ''' SELECT mu, sigma, ROW_NUMBER() OVER(ORDER BY game_id ASC) AS game_nr 
+                      FROM trueskills WHERE discord_id = ? ORDER BY game_id DESC LIMIT 1 '''
+            values = (player_id, )
             cursor = conn.cursor()
             cursor.execute(sql, values)
             data = cursor.fetchone()
             if data:
-                team_rating.append(Rating(data[0], data[1]))
+                if data[3] < MIN_NUM_GAMES_FOR_TS:
+                    enough_data = False
+                    break
+                else:
+                    team_rating.append(Rating(data[0], data[1]))
             else:
-                team_rating.append(Rating())
+                enough_data = False
+                break
+        if not enough_data:
+            break
         team_ratings.append(team_rating)
-    delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
-    sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
-    size = len(team_ratings[0]) + len(team_ratings[1])
-    return global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
+    if enough_data:
+        delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
+        sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
+        size = len(team_ratings[0]) + len(team_ratings[1])
+        return global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
+    else:
+        return 0
 
 
 def init_db(conn) -> None:
@@ -1735,8 +1747,11 @@ def start_bot(conn):
         team1_ids = [int(i) for i in team_id_strs[0].split()]
         team2_ids = [int(i) for i in team_id_strs[1].split()]
         team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
-        result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
-                      f'({(1 - team1_win_chance):.1%}).')
+        if team1_win_chance > 0
+            result_msg = (f'Teams picked, prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                          f'({(1 - team1_win_chance):.1%}).')
+        else:
+            result_msg = 'Teams picked, prediction: Not enough data.'
         await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 
@@ -2123,8 +2138,11 @@ def start_bot(conn):
             if success:
                 if status == GameStatus.INPROGRESS:
                     team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
-                    result_msg = (f'Player subbed, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
-                                  f'({(1 - team1_win_chance):.1%}).')
+                    if team1_win_chance > 0:
+                        result_msg = (f'Player subbed, new prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                                      f'({(1 - team1_win_chance):.1%}).')
+                    else:
+                        result_msg = 'Teams picked, prediction: Not enough data.'
                     await message.channel.send(result_msg)
                 else:
                     player_ids = [team1_ids[0], team2_ids[0]]
@@ -2182,8 +2200,11 @@ def start_bot(conn):
                 team1_ids = [int(i) for i in teams[0].split()]
                 team2_ids = [int(i) for i in teams[1].split()]
                 team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
-                result_msg = (f'Player swapped, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
-                              f'({(1 - team1_win_chance):.1%}).')
+                if team1_win_chance > 0:
+                    result_msg = (f'Player swapped, new prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                                  f'({(1 - team1_win_chance):.1%}).')
+                else:
+                    result_msg = 'Teams picked, prediction: Not enough data.'
                 await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[success])
 

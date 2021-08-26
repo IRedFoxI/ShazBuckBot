@@ -1747,7 +1747,7 @@ def start_bot(conn):
         team1_ids = [int(i) for i in team_id_strs[0].split()]
         team2_ids = [int(i) for i in team_id_strs[1].split()]
         team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
-        if team1_win_chance > 0
+        if team1_win_chance > 0:
             result_msg = (f'Teams picked, prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
                           f'({(1 - team1_win_chance):.1%}).')
         else:

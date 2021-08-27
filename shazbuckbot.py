@@ -409,7 +409,7 @@ def calculate_win_chance(conn, teams_ids) -> float:
             cursor.execute(sql, values)
             data = cursor.fetchone()
             if data:
-                if data[3] < MIN_NUM_GAMES_FOR_TS:
+                if data[2] < MIN_NUM_GAMES_FOR_TS:
                     enough_data = False
                     break
                 else:

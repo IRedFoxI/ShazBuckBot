@@ -1610,10 +1610,10 @@ def start_bot(conn):
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @cmd_motd.command(name='end', help='Show current Messages of the Day')
+    @cmd_motd.command(name='end', help='End the selected Message of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_motd_list(ctx, motd_id: int):
+    async def cmd_motd_end(ctx, motd_id: int):
         success = False
         requestor = ctx.message.author
         if requestor.id == REDFOX_DISCORD_ID:

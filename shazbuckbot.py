@@ -12,11 +12,9 @@ from itertools import combinations, chain
 from math import sqrt, floor
 
 import unicodedata
-from enum import IntEnum, auto
 
 import git
 import requests
-import yaml
 import sqlite3
 from typing import List, Tuple
 import logging
@@ -25,41 +23,27 @@ import discord
 from aiohttp import ClientConnectorError
 from discord.ext import commands
 
-from trueskill import Rating, rate, quality, backends, BETA, global_env
+from helper_classes import GameStatus, WagerResult, TimeDuration
+from config import load_config
 
+from trueskill import Rating, rate, quality, backends, BETA, global_env
 backends.choose_backend('scipy')
 
-config = yaml.safe_load(open("config.yml"))
+MAJOR_VERSION = 1
+MINOR_VERSION = 0
+PATCH = 0
+
+config = load_config()
+
 TOKEN: str = config['token']
 DATABASE: str = config['database']
 DISCORD_ID: int = config['discord_id']
 INIT_BAL: int = config['init_bal']
 BUCKS_PER_PUG: int = config['bucks_per_pug']
-BET_WINDOW: int = config['bet_window']
 BULLYBOT_DISCORD_ID: int = config['bullybot_discord_id']
 REDFOX_DISCORD_ID: int = config['redfox_discord_id']
 PUG_CHANNEL_ID: int = config['pug_channel_id']
 BOT_CHANNEL_ID: int = config['bot_channel_id']
-
-
-class GameStatus(IntEnum):
-    PICKING = auto()
-    CANCELLED = auto()
-    INPROGRESS = auto()
-    TEAM1 = auto()
-    TEAM2 = auto()
-    TIED = auto()
-
-
-class WagerResult(IntEnum):
-    INPROGRESS = auto()
-    WON = auto()
-    LOST = auto()
-    CANCELLED = auto()
-    CANCELLEDNOWINNERS = auto()
-    CANCELLEDONESIDED = auto()
-
-
 DM_TIME_TO_WAIT = 0.21  # Seconds
 DURATION_TOLERANCE = 60  # Minutes
 REACTIONS = ["👎", "👍"]
@@ -70,36 +54,8 @@ TWITCH_GAME_ID = "517069"  # midair community edition
 TWITCH_CLIENT_ID: str = config['twitch_client_id']
 TWITCH_AUTH_ACCESS_TOKEN: str = config['twitch_auth_access_token']
 MIN_NUM_GAMES_FOR_TS = 60
-
-
-class TimeDuration:
-    SECONDS_PER_UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
-
-    def __init__(self, value: int, unit: str):
-        self.value = value
-        self.unit = unit
-
-    def __str__(self):
-        return f'{str(self.value)}{self.unit}'
-
-    @classmethod
-    async def convert(cls, _ctx, argument):
-        if type(argument) == str and len(argument) > 1:
-            unit = argument[-1]
-            if unit in TimeDuration.SECONDS_PER_UNIT and argument[:-1].isdigit():
-                value = int(argument[:-1])
-                return cls(value, unit)
-            else:
-                raise commands.BadArgument('Incorrect string format for TimeDuration.')
-        else:
-            raise commands.BadArgument('No string or too short for TimeDuration.')
-
-    @property
-    def to_seconds(self):
-        return self.value * TimeDuration.SECONDS_PER_UNIT[self.unit]
-
-
-DEFAULT_MOTD_TIME = TimeDuration(1, 'd')
+DEFAULT_BET_WINDOW = TimeDuration.from_string(config['default_bet_window'])
+DEFAULT_MOTD_TIME = TimeDuration.from_string(config['default_motd_time'])
 
 
 def caseless_equal(left, right):
@@ -475,7 +431,7 @@ def init_db(conn) -> None:
     data = cur.fetchone()
     if data[0] == 0:
         conn.execute(f"""
-            ALTER TABLE games ADD COLUMN bet_window INTEGER NOT NULL DEFAULT {BET_WINDOW}
+            ALTER TABLE games ADD COLUMN bet_window INTEGER NOT NULL DEFAULT {DEFAULT_BET_WINDOW.to_seconds}
         """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS wagers (
@@ -773,13 +729,13 @@ def start_bot(conn):
             else:
                 if game_id == 0:
                     sql = ''' SELECT id, team1, team2, queue,
-                              CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER),
+                              CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                               bet_window
                               FROM games WHERE status = ? '''
                     game_data = (GameStatus.INPROGRESS,)
                 else:
                     sql = ''' SELECT id, team1, team2, queue,
-                              CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER),
+                              CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                               bet_window
                               FROM games WHERE id = ? AND status = ? '''
                     game_data = (game_id, GameStatus.INPROGRESS)
@@ -845,8 +801,8 @@ def start_bot(conn):
                                    f'use 1, 2, Red or Blue, check the ID or wait until the teams have been picked.')
                         await send_dm(user_id, msg)
                     elif time_since_pick > bet_window:
-                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} minutes ago. '
-                               f'Bets have to be made within {bet_window} minutes after picking is complete')
+                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} seconds ago. '
+                               f'Bets had to be made within {bet_window} seconds after picking was completed.')
                         await send_dm(user_id, msg)
                     else:
                         sql = ''' SELECT id, prediction FROM wagers 
@@ -926,7 +882,7 @@ def start_bot(conn):
                     show_str += f'MOTD: {motd[0]}\n'
             # Find running games
             sql = ''' SELECT id, team1, team2, queue, status, 
-                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60) AS INTEGER),
+                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                       bet_window
                       FROM games WHERE status = ? OR status = ?'''
             cursor = conn.cursor()
@@ -962,7 +918,7 @@ def start_bot(conn):
                                      f'{capt_nicks[1]}\n')
                     elif game_status == GameStatus.INPROGRESS:
                         if run_time <= bet_window:
-                            show_str += (f'{queue}: Game {game_id} ({bet_window - run_time} minutes left to bet): '
+                            show_str += (f'{queue}: Game {game_id} ({bet_window - run_time} seconds left to bet): '
                                          f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
@@ -1402,7 +1358,8 @@ def start_bot(conn):
     @bot.command(name='start_game', help='Create a new custom game')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_start_game(ctx, outcome1: str, outcome2: str, bet_window: typing.Optional[int] = BET_WINDOW,
+    async def cmd_start_game(ctx, outcome1: str, outcome2: str,
+                             duration: typing.Optional[TimeDuration] = DEFAULT_BET_WINDOW,
                              description: typing.Optional[str] = ''):
         success = False
         discord_id = ctx.author.id
@@ -1423,7 +1380,7 @@ def start_bot(conn):
                 await send_dm(user_id, msg)
             else:
                 teams = (outcome1, outcome2)
-                game = (description,) + teams + (bet_window,)
+                game = (description,) + teams + (duration.to_seconds,)
                 game_id = create_game(conn, game)
                 pick_game(conn, game_id, teams)
                 success = True
@@ -1653,7 +1610,7 @@ def start_bot(conn):
             else:
                 logger.error(f'Could not find discord id for player {nick}')
         team_id_strs = tuple(player_id_strs)
-        game = (queue,) + team_id_strs + (BET_WINDOW,)
+        game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
         game_id = create_game(conn, game)
         logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
         best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(conn, player_ids)
@@ -1690,7 +1647,7 @@ def start_bot(conn):
         games = cursor.fetchall()
         if not games:
             logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status in that queue!')
-            game = (queue,) + team_id_strs + (BET_WINDOW,)
+            game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
             game_id = create_game(conn, game)
             game_status = GameStatus.PICKING
             logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
@@ -1733,7 +1690,7 @@ def start_bot(conn):
             if game_id == 0:
                 logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status and '
                              f'captains {" and ".join(capt_nicks)} in that queue!')
-                game = (queue,) + team_id_strs + (BET_WINDOW,)
+                game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
                 game_id = create_game(conn, game)
                 game_status = GameStatus.PICKING
                 logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')

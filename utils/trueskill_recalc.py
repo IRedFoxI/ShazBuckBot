@@ -18,7 +18,7 @@ class GameStatus(IntEnum):
     TIED = auto()
 
 
-config = yaml.safe_load(open("config.yml"))
+config = yaml.safe_load(open("../config.yml"))
 DATABASE = config['database']
 
 conn = sqlite3.connect(DATABASE)

@@ -5,7 +5,7 @@ from math import ceil
 import yaml
 import sqlite3
 
-config = yaml.safe_load(open("config.yml"))
+config = yaml.safe_load(open("../config.yml"))
 DATABASE: str = config['database']
 DISCORD_ID: int = config['discord_id']
 

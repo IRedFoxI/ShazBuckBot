@@ -6,7 +6,7 @@ import yaml
 import sqlite3
 
 
-config = yaml.safe_load(open("config.yml"))
+config = yaml.safe_load(open("../config.yml"))
 DATABASE = config['database']
 GAME_STATUS = IntEnum('Game_Status', 'Picking Cancelled InProgress Team1 Team2 Tied')
 WAGER_RESULT = IntEnum('Wager_Result', 'InProgress Won Lost Canceled')

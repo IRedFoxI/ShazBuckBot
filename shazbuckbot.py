@@ -70,6 +70,7 @@ NO_PLAYERS = 10
 TWITCH_GAME_ID = "517069"  # midair community edition
 TWITCH_CLIENT_ID: str = config['twitch_client_id']
 TWITCH_AUTH_ACCESS_TOKEN: str = config['twitch_auth_access_token']
+MIN_NUM_GAMES_FOR_TS = 60
 
 
 class TimeDuration:
@@ -355,7 +356,7 @@ def end_motd(conn, motd_id) -> None:
     conn.commit()
 
 
-def suggest_even_teams(conn, player_ids) -> (list[int], list[int], float):
+def suggest_even_teams(conn, player_ids) -> (List[int], List[int], float):
     """Suggest even teams based on TrueSkill ratings
 
     :param sqlite3.Connection conn: Connection to the database
@@ -398,24 +399,35 @@ def calculate_win_chance(conn, teams_ids) -> float:
     :return: Chance for the first team to win
     """
     team_ratings = []
+    enough_data = True
     for team_ids in teams_ids:
         team_rating = []
         for player_id in team_ids:
-            sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
-                      FROM trueskills WHERE discord_id = ? ) '''
-            values = (player_id, player_id)
+            sql = ''' SELECT mu, sigma, ROW_NUMBER() OVER(ORDER BY game_id ASC) AS game_nr 
+                      FROM trueskills WHERE discord_id = ? ORDER BY game_id DESC LIMIT 1 '''
+            values = (player_id, )
             cursor = conn.cursor()
             cursor.execute(sql, values)
             data = cursor.fetchone()
             if data:
-                team_rating.append(Rating(data[0], data[1]))
+                if data[2] < MIN_NUM_GAMES_FOR_TS:
+                    enough_data = False
+                    break
+                else:
+                    team_rating.append(Rating(data[0], data[1]))
             else:
-                team_rating.append(Rating())
+                enough_data = False
+                break
+        if not enough_data:
+            break
         team_ratings.append(team_rating)
-    delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
-    sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
-    size = len(team_ratings[0]) + len(team_ratings[1])
-    return global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
+    if enough_data:
+        delta_mu = sum(r.mu for r in team_ratings[0]) - sum(r.mu for r in team_ratings[1])
+        sum_sigma = sum(r.sigma ** 2 for r in chain(team_ratings[0], team_ratings[1]))
+        size = len(team_ratings[0]) + len(team_ratings[1])
+        return global_env().cdf(delta_mu / sqrt(size * (BETA * BETA) + sum_sigma))
+    else:
+        return 0
 
 
 def init_db(conn) -> None:
@@ -737,7 +749,7 @@ def start_bot(conn):
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='bet', help='Bet shazbucks on a game. Winner should be either the name of the captain '
-                                  'or 1, 2, 3, Red, Blue or Tie. Optionally you can specify the ID of the game.')
+                                  'or 1, 2, Red or Blue. Optionally you can specify the ID of the game.')
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_bet(ctx, winner: str, amount: int, *, game_id=0):
         success = False
@@ -805,10 +817,6 @@ def start_bot(conn):
                             winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
-                        time_since_pick = games[-1][4]
-                    elif winner == "3" or caseless_equal(winner, "Tie"):
-                        prediction += GameStatus.TIED
-                        winner = 'a tie'
                         time_since_pick = games[-1][4]
                     else:
                         for game in games:
@@ -926,7 +934,7 @@ def start_bot(conn):
             cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS))
             games = cursor.fetchall()
             if not games:
-                show_str += f'No games are running'
+                show_str += f'No games are currently walking or running'
             else:
                 for game in games:
                     game_id: int = game[0]
@@ -956,14 +964,12 @@ def start_bot(conn):
                     elif game_status == GameStatus.INPROGRESS:
                         if run_time <= bet_window:
                             show_str += (f'{queue}: Game {game_id} ({bet_window - run_time} minutes left to bet): '
-                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}), '
-                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]}) or '
-                                         f'tied ({total_amounts[GameStatus.TIED]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
                             show_str += (f'{queue}: Game {game_id} (Betting closed): '
-                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}), '
-                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]}) or '
-                                         f'tied ({total_amounts[GameStatus.TIED]})\n')
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                                         f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
             success = True
             await ctx.send(show_str)
         await ctx.message.add_reaction(REACTIONS[success])
@@ -1605,10 +1611,10 @@ def start_bot(conn):
             success = True
         await ctx.message.add_reaction(REACTIONS[success])
 
-    @cmd_motd.command(name='end', help='Show current Messages of the Day')
+    @cmd_motd.command(name='end', help='End the selected Message of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_motd_list(ctx, motd_id: int):
+    async def cmd_motd_end(ctx, motd_id: int):
         success = False
         requestor = ctx.message.author
         if requestor.id == REDFOX_DISCORD_ID:
@@ -1693,7 +1699,8 @@ def start_bot(conn):
         team_id_strs: Tuple[str, ...] = ()
         for team_str in team_strs:
             id_strs = []
-            players = team_str.replace(':', ',').split(', ')
+            players = team_str.split(': ')
+            players[1:] = ': '.join(players[1:]).split(', ')
             for nick in players:
                 member = await query_members(nick)
                 if member:
@@ -1766,8 +1773,11 @@ def start_bot(conn):
         team1_ids = [int(i) for i in team_id_strs[0].split()]
         team2_ids = [int(i) for i in team_id_strs[1].split()]
         team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
-        result_msg = (f'Teams picked, predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
-                      f'({(1 - team1_win_chance):.1%}).')
+        if team1_win_chance > 0:
+            result_msg = (f'Teams picked, prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                          f'({(1 - team1_win_chance):.1%}).')
+        else:
+            result_msg = 'Teams picked, prediction: Not enough data.'
         await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[True])
 
@@ -2154,8 +2164,11 @@ def start_bot(conn):
             if success:
                 if status == GameStatus.INPROGRESS:
                     team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
-                    result_msg = (f'Player subbed, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
-                                  f'({(1 - team1_win_chance):.1%}).')
+                    if team1_win_chance > 0:
+                        result_msg = (f'Player subbed, new prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                                      f'({(1 - team1_win_chance):.1%}).')
+                    else:
+                        result_msg = 'Teams picked, prediction: Not enough data.'
                     await message.channel.send(result_msg)
                 else:
                     player_ids = [team1_ids[0], team2_ids[0]]
@@ -2213,8 +2226,11 @@ def start_bot(conn):
                 team1_ids = [int(i) for i in teams[0].split()]
                 team2_ids = [int(i) for i in teams[1].split()]
                 team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
-                result_msg = (f'Player swapped, new predictions: Team 1 ({team1_win_chance:.1%}), Team 2 '
-                              f'({(1 - team1_win_chance):.1%}).')
+                if team1_win_chance > 0:
+                    result_msg = (f'Player swapped, new prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
+                                  f'({(1 - team1_win_chance):.1%}).')
+                else:
+                    result_msg = 'Teams picked, prediction: Not enough data.'
                 await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[success])
 

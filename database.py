@@ -2,6 +2,7 @@
 """database handling for shazbuckbot"""
 
 import sqlite3
+from typing import Tuple, List
 from helper_classes import GameStatus, WagerResult, TimeDuration
 
 DATABASE_VERSION = 1
@@ -9,11 +10,11 @@ DATABASE_VERSION = 1
 
 class DataBase:
 
-    def __init__(self, db_file, bot_discord_id, default_bet_window):
+    def __init__(self, db_file, bot_discord_id, default_bet_window) -> None:
         """Initialize the database
 
         :param str db_file: Path and filename of the database
-        :param int bot_discord_id: Discord ID of the bot
+        :param int bot_discord_id: Discord id of the bot
         :param TimeDuration default_bet_window: The default bet window used if none specified
         """
         self.conn = sqlite3.connect(db_file)
@@ -37,7 +38,7 @@ class DataBase:
         cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (bot_discord_id,))
         self.bot_user_id = cur.fetchone()[0]
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()
 
     def new_database(self) -> None:
@@ -97,7 +98,7 @@ class DataBase:
             );
         """)
 
-    def update_database(self, db_version, default_bet_window):
+    def update_database(self, db_version, default_bet_window) -> None:
         """Update the database to current version
 
         :param int db_version: Version of the database
@@ -113,8 +114,9 @@ class DataBase:
                     ALTER TABLE games ADD COLUMN bet_window INTEGER NOT NULL DEFAULT {default_bet_window.to_seconds}
                 """)
             else:
-                # TODO: Update bet windows to seconds
-                pass
+                self.conn.execute("UPDATE games SET bet_window = bet_window * 60")
+            self.conn.execute("PRAGMA user_version = 1")
+            self.conn.commit()
 
     def create_user(self, user) -> int:
         """Create a new user into the users table
@@ -133,11 +135,24 @@ class DataBase:
         """Get user data from database
     
         :param int user_id: The id of the user
-        :param str fields: String of field names separated by a comma
+        :param Tuple[str] fields: tuple of field names
         :return: A tuple containing the requested data
         """
+        fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM users WHERE id = ? ''', (user_id,))
+        return cur.fetchone()
+
+    def get_user_data_by_discord_id(self, discord_id, fields) -> tuple:
+        """Get user data from database
+
+        :param int discord_id: The discord id of the user
+        :param Tuple[str] fields: tuple of field names
+        :return: A tuple containing the requested data
+        """
+        fields = ', '.join(fields)
+        cur = self.conn.cursor()
+        cur.execute(f''' SELECT {fields} FROM users WHERE discord_id = ? ''', (discord_id,))
         return cur.fetchone()
 
     def set_user_data(self, user_id, fields, values) -> None:
@@ -147,6 +162,8 @@ class DataBase:
         :param tuple[str] fields: Tuple of fields to be changed
         :param tuple values: Values of the fields to be changed
         """
+        if len(fields) != len(values):
+            raise ValueError('Number of values not equal to number of fields to be updated')
         fields_str = ' = ?, '.join(fields) + ' = ?'
         values += (user_id,)
         sql = f''' UPDATE users SET {fields_str} WHERE id = ? '''
@@ -252,6 +269,38 @@ class DataBase:
         cur.execute(sql, values)
         self.conn.commit()
 
+    def games_in_progress(self, game_id) -> List[Tuple[int, str, str, str, int, int]]:
+        """Provide data on games that are in progress
+
+        :param int game_id: id of the game or zero to return the data on all in progress games
+        :return: List of Tuples containing the game_id, team1, team2, queue, time since pick and bet window for each
+        game
+        """
+        if game_id == 0:
+            sql = ''' SELECT id, team1, team2, queue,
+                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
+                      bet_window
+                      FROM games WHERE status = ? '''
+            game_data = (GameStatus.INPROGRESS,)
+        else:
+            sql = ''' SELECT id, team1, team2, queue,
+                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
+                      bet_window
+                      FROM games WHERE id = ? AND status = ? '''
+            game_data = (game_id, GameStatus.INPROGRESS)
+        cursor = self.conn.cursor()
+        cursor.execute(sql, game_data)
+        data = cursor.fetchall()
+        games = []
+        for game in data:
+            game_id: int = game[0]
+            teams: Tuple[str, str] = game[1:3]
+            queue: str = game[3]
+            time_since_pick: int = game[4]
+            bet_window: int = game[5]
+            games.append((game_id,) + teams + (queue, time_since_pick, bet_window))
+        return games
+
     def create_wager(self, wager) -> int:
         """Create a new wager into the wagers table
     
@@ -307,6 +356,28 @@ class DataBase:
         cur = self.conn.cursor()
         cur.execute(sql, values)
         self.conn.commit()
+
+    def wagers_from_game_id(self, game_id, wager_result) -> List[Tuple[int, int, int, str, str, str]]:
+        """Return all the data of the wagers placed on a certain game
+        
+        :param int game_id: Game id of the game
+        :param WagerResult wager_result: Only return wagers with this status
+        :return: List of wager data (id, user_id, amount, nick, team1, team2)
+        """
+        sql = ''' SELECT wagers.id, user_id, amount, nick, team1, team2 FROM wagers, users, games 
+                  WHERE game_id = ? AND users.id = user_id AND games.id = game_id AND result = ?'''
+        cursor = self.conn.cursor()
+        cursor.execute(sql, (game_id, wager_result))
+        data = cursor.fetchall()
+        wagers = []
+        for wager in data:
+            wager_id: int = wager[0]
+            user_id: int = wager[1]
+            amount: int = wager[2]
+            nick: str = wager[3]
+            teams: Tuple[str, str] = wager[4:6]
+            wagers.append((wager_id, user_id, amount, nick) + teams)
+        return wagers
 
     def create_motd(self, motd) -> int:
         """Create a new motd into the motds table

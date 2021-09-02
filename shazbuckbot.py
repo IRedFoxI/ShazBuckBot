@@ -151,9 +151,7 @@ def start_bot(db, logger):
     """
     bot = commands.Bot(command_prefix='!', loop=asyncio.new_event_loop(),
                        help_command=commands.DefaultHelpCommand(dm_help=True))
-    cur = conn.cursor()
-    cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (DISCORD_ID,))
-    bot_user_id = cur.fetchone()[0]
+    bot_user_id = db.bot_user_id
 
     def is_admin():
         def predicate(ctx):
@@ -216,15 +214,14 @@ def start_bot(db, logger):
         """
         capt_nick = 'Unknown'
         if discord_id.isdigit():
-            member = await fetch_member(int(discord_id))
+            discord_id = int(discord_id)
+            member = await fetch_member(discord_id)
             if member:
                 capt_nick = member.display_name
             else:
-                cursor = conn.cursor()
-                cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-                data = cursor.fetchone()
+                data = db.get_user_data_by_discord_id(discord_id, ('nick',))
                 if data:
-                    capt_nick = data[1]
+                    capt_nick = data
                 else:
                     logger.warning(f'Unable to fetch nick from discord id ({discord_id}): no valid response from '
                                    f'discord and not found in the database.')
@@ -239,7 +236,7 @@ def start_bot(db, logger):
         :param int user_id: User id in database
         :param str message: The message to be send to the user
         """
-        (discord_id, mute_dm) = db.get_user_data(user_id, 'discord_id, mute_dm')
+        (discord_id, mute_dm) = db.get_user_data(user_id, ('discord_id, mute_dm',))
         if not mute_dm:
             user = await fetch_member(discord_id)
             if user:
@@ -258,11 +255,7 @@ def start_bot(db, logger):
         :param int game_id: The id of game which bets should be cancelled
         :param str reason: The reason of the cancellation to send to the users in a DM
         """
-        sql = ''' SELECT wagers.id, user_id, amount, nick, team1, team2 FROM wagers, users, games 
-                  WHERE game_id = ? AND users.id = user_id AND games.id = ? AND result = ?'''
-        cursor = conn.cursor()
-        cursor.execute(sql, (game_id, game_id, WagerResult.INPROGRESS))
-        wagers = cursor.fetchall()
+        wagers = db.wagers_from_game_id(game_id, WagerResult.INPROGRESS)
         for wager in wagers:
             wager_id: int = wager[0]
             user_id: int = wager[1]
@@ -295,9 +288,7 @@ def start_bot(db, logger):
         success = False
         discord_id = ctx.author.id
         nick = ctx.author.name
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id,nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             user_id = db.create_user((discord_id, nick, 0, 0))
             if user_id == 0 or db.create_transfer((bot_user_id, user_id, INIT_BAL)) == 0:
@@ -332,9 +323,7 @@ def start_bot(db, logger):
     async def cmd_balance(ctx):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT nick, balance FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('nick', 'balance'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -349,9 +338,7 @@ def start_bot(db, logger):
     async def cmd_gift(ctx, receiver: discord.Member, amount: int):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick, balance FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick', 'balance'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -368,9 +355,7 @@ def start_bot(db, logger):
                 await send_dm(sender_id, msg)
             else:
                 discord_id = receiver.id
-                cursor = conn.cursor()
-                cursor.execute(''' SELECT id, nick, balance FROM users WHERE discord_id = ? ''', (discord_id,))
-                data = cursor.fetchone()
+                data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick', 'balance'))
                 if data is None:
                     msg = f'Hi {nick}, {receiver} does not have an account yet!'
                     await send_dm(sender_id, msg)
@@ -398,14 +383,12 @@ def start_bot(db, logger):
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.command(name='bet', help='Bet shazbucks on a game. Winner should be either the name of the captain '
-                                  'or 1, 2, Red or Blue. Optionally you can specify the ID of the game.')
+                                  'or 1, 2, Red or Blue. Optionally you can specify the id of the game.')
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_bet(ctx, winner: str, amount: int, *, game_id=0):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick, balance FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick', 'balance'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -421,27 +404,13 @@ def start_bot(db, logger):
                 msg = f'Hi {nick}, you cannot bet a negative or zero amount.'
                 await send_dm(user_id, msg)
             else:
-                if game_id == 0:
-                    sql = ''' SELECT id, team1, team2, queue,
-                              CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
-                              bet_window
-                              FROM games WHERE status = ? '''
-                    game_data = (GameStatus.INPROGRESS,)
-                else:
-                    sql = ''' SELECT id, team1, team2, queue,
-                              CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
-                              bet_window
-                              FROM games WHERE id = ? AND status = ? '''
-                    game_data = (game_id, GameStatus.INPROGRESS)
-                cursor = conn.cursor()
-                cursor.execute(sql, game_data)
-                games = cursor.fetchall()
+                games = db.games_in_progress(game_id)
                 if not games:
                     if game_id == 0:
                         msg = f'Hi {nick}. No games are running. Please wait until teams are picked.'
                     else:
-                        msg = (f'Hi {nick}. There is currently no game with ID {game_id} running. Please double-check '
-                               f'the ID or wait until teams are picked.')
+                        msg = (f'Hi {nick}. There is currently no game with id {game_id} running. Please double-check '
+                               f'the id or wait until teams are picked.')
                     await send_dm(user_id, msg)
                 else:
                     game_id: int = games[-1][0]
@@ -492,7 +461,7 @@ def start_bot(db, logger):
                                    f'use 1, 2, Red or Blue, or wait until the teams have been picked.')
                         else:
                             msg = (f'Hi {nick}, could not find a game to bet on {winner}. Please check the spelling, '
-                                   f'use 1, 2, Red or Blue, check the ID or wait until the teams have been picked.')
+                                   f'use 1, 2, Red or Blue, check the id or wait until the teams have been picked.')
                         await send_dm(user_id, msg)
                     elif time_since_pick > bet_window:
                         msg = (f'Hi {nick}, too late! The game has started {time_since_pick} seconds ago. '
@@ -537,15 +506,13 @@ def start_bot(db, logger):
     async def cmd_mute(ctx):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, mute_dm FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'mute_dm'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
             user_id: int = data[0]
-            mute_dm: int = (db.get_user_data(user_id, 'mute_dm')[0] + 1) % 2
+            mute_dm: int = (db.get_user_data(user_id, ('mute_dm',))[0] + 1) % 2
             db.set_user_data(user_id, ('mute_dm',), (mute_dm,))
             msg = f'Hi {ctx.author.name}, direct messages have been unmuted!'
             await send_dm(user_id, msg)
@@ -557,9 +524,7 @@ def start_bot(db, logger):
     async def cmd_show(ctx):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -628,9 +593,7 @@ def start_bot(db, logger):
     async def cmd_top5(ctx):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -668,9 +631,7 @@ def start_bot(db, logger):
     async def cmd_beggars(ctx):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -712,9 +673,7 @@ def start_bot(db, logger):
     async def cmd_philanthropists(ctx):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -870,9 +829,7 @@ def start_bot(db, logger):
     async def cmd_change_game(ctx, game_id: int, result: str):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -1057,9 +1014,7 @@ def start_bot(db, logger):
                              description: typing.Optional[str] = ''):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -1086,9 +1041,7 @@ def start_bot(db, logger):
     async def cmd_end_game(ctx, game_id: int, result: str):
         success = False
         discord_id = ctx.author.id
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cursor.fetchone()
+        data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
         if data is None:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
@@ -1573,7 +1526,7 @@ def start_bot(db, logger):
                                                                                       List[Tuple[str, int]]]:
         """Resolve wagers placed on a game based on its outcome
 
-        :param int game_id: ID of the game
+        :param int game_id: id of the game
         :param int game_result: Result of the game
         :param List[str] capt_nicks: List of captain nicks
         :param bool change: Boolean indicating whether the result of the game is being changed
@@ -1685,10 +1638,7 @@ def start_bot(db, logger):
         for idx, team in enumerate(teams):
             captain = True
             for player in team:
-                cursor = conn.cursor()
-                cursor.execute(''' SELECT id, nick FROM users WHERE discord_id = ? ''',
-                               (player.id,))
-                user = cursor.fetchone()
+                user = db.get_user_data_by_discord_id(player.id, ('id', 'nick'))
                 if user:
                     user_id: int = user[0]
                     nick: str = user[1]

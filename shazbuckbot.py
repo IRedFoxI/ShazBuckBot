@@ -1883,7 +1883,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # Connect to database and initialise
-    db = DataBase(DATABASE, DISCORD_ID)
+    db = DataBase(DATABASE, DISCORD_ID, DEFAULT_BET_WINDOW)
     # Attempt to connect to Discord server
     retry_count = 0
     while retry_count < MAX_RETRY_COUNT:

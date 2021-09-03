@@ -1890,7 +1890,7 @@ def main():
         try:
             start_bot(db, logger)
             break
-        except ClientConnectorError as ex:
+        except ClientConnectorError:
             retry_count += 1
             logger.error(f'Attempt number {retry_count} to connect to the Discord server failed. Waiting to retry.')
             time.sleep(RETRY_WAIT)

@@ -52,5 +52,3 @@ class TimeDuration:
     @property
     def to_seconds(self):
         return self.value * TimeDuration.SECONDS_PER_UNIT[self.unit]
-
-

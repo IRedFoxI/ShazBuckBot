@@ -255,13 +255,13 @@ def start_bot(db, logger):
         :param int game_id: The id of game which bets should be cancelled
         :param str reason: The reason of the cancellation to send to the users in a DM
         """
-        wagers = db.wagers_from_game_id(game_id, WagerResult.INPROGRESS)
+        wagers = db.get_wagers_from_game_id(game_id, WagerResult.INPROGRESS)
         for wager in wagers:
-            wager_id: int = wager[0]
-            user_id: int = wager[1]
-            amount: int = wager[2]
-            nick: str = wager[3]
-            teams: Tuple[str, str] = wager[4:6]
+            wager_id = wager[0]
+            user_id = wager[1]
+            amount = wager[2]
+            nick = wager[4]
+            teams = wager[6:8]
             captains = [team.split(':')[0] for team in teams]
             transfer = (bot_user_id, user_id, amount)
             db.create_transfer(transfer)
@@ -404,7 +404,7 @@ def start_bot(db, logger):
                 msg = f'Hi {nick}, you cannot bet a negative or zero amount.'
                 await send_dm(user_id, msg)
             else:
-                games = db.games_in_progress(game_id)
+                games = db.get_in_progress_games(game_id)
                 if not games:
                     if game_id == 0:
                         msg = f'Hi {nick}. No games are running. Please wait until teams are picked.'
@@ -468,12 +468,7 @@ def start_bot(db, logger):
                                f'Bets had to be made within {bet_window} seconds after picking was completed.')
                         await send_dm(user_id, msg)
                     else:
-                        sql = ''' SELECT id, prediction FROM wagers 
-                                  WHERE user_id = ? AND game_id = ? AND result = ? '''
-                        values = (user_id, game_id, WagerResult.INPROGRESS)
-                        cursor = conn.cursor()
-                        cursor.execute(sql, values)
-                        prev_wager: Tuple[int] = cursor.fetchone()
+                        prev_wager = db.get_current_wager(user_id, game_id)
                         if prev_wager and prediction != prev_wager[1]:
                             msg = f'Hi {nick}, you cannot bet against yourself!'
                             await send_dm(user_id, msg)
@@ -531,45 +526,32 @@ def start_bot(db, logger):
         else:
             show_str = ''
             # Add MOTDs
-            sql = ''' SELECT message FROM motds 
-                      WHERE (channel_id = 0 OR channel_id = ?) AND end_time > strftime('%s','now') '''
-            cursor = conn.cursor()
-            cursor.execute(sql, (ctx.channel.id,))
-            motds = cursor.fetchall()
+            motds = db.get_motds(ctx.channel.id, general=True)
             if motds:
                 for motd in motds:
-                    show_str += f'MOTD: {motd[0]}\n'
+                    show_str += f'MOTD: {motd[5]}\n'
             # Find running games
-            sql = ''' SELECT id, team1, team2, queue, status, 
-                      CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
-                      bet_window
-                      FROM games WHERE status = ? OR status = ?'''
-            cursor = conn.cursor()
-            cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS))
-            games = cursor.fetchall()
+            games = db.get_running_games()
             if not games:
                 show_str += f'No games are currently walking or running'
             else:
                 for game in games:
-                    game_id: int = game[0]
-                    teams: Tuple[str, str] = game[1:3]
-                    queue: str = game[3]
-                    game_status: GameStatus = game[4]
-                    run_time: int = game[5]
-                    bet_window: int = game[6]
+                    game_id = game[0]
+                    teams = game[1:3]
+                    queue = game[3]
+                    game_status = game[4]
+                    run_time = game[5]
+                    bet_window = game[6]
                     capt_ids_strs = [team.split()[0] for team in teams]
                     if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                         capt_nicks = [await get_nick_from_discord_id(did) for did in capt_ids_strs]
                     else:
                         capt_nicks = capt_ids_strs
-                    cursor = conn.cursor()
-                    sql = ''' SELECT prediction, amount FROM wagers WHERE game_id = ? AND result = ? '''
-                    cursor.execute(sql, (game_id, WagerResult.INPROGRESS))
-                    wagers = cursor.fetchall()
+                    wagers = db.get_wagers_from_game_id(game_id, WagerResult.INPROGRESS)
                     total_amounts = {GameStatus.TEAM1: 0, GameStatus.TEAM2: 0, GameStatus.TIED: 0}
                     for wager in wagers:
-                        prediction = GameStatus(wager[0])
-                        amount: int = wager[1]
+                        prediction = wager[2]
+                        amount = wager[3]
                         total_amounts[prediction] += amount
                     if game_status == GameStatus.PICKING:
                         show_str += (f'{queue}: Game {game_id} (Picking): '
@@ -600,19 +582,16 @@ def start_bot(db, logger):
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            sql = ''' SELECT nick, discord_id, balance FROM users ORDER BY balance DESC LIMIT 5 '''
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            users = cursor.fetchall()
+            users = db.get_top5()
             if not users:
                 msg = f'Hi {nick}. Something went wrong, no top 5.'
                 await send_dm(user_id, msg)
             else:
                 top5_str = 'The top 5 players with the most shazbucks are: '
                 for i, user in enumerate(users):
-                    nick: str = user[0]
-                    discord_id: int = user[1]
-                    balance: int = user[2]
+                    nick = user[0]
+                    discord_id = user[1]
+                    balance = user[2]
                     member = await fetch_member(discord_id)
                     username = member.display_name if member else nick
                     top5_str += f'{username} ({balance})'
@@ -638,23 +617,16 @@ def start_bot(db, logger):
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            sql = ''' SELECT nick, discord_id, SUM(CASE WHEN users.id = receiver THEN amount ELSE -amount END) 
-                      AS total_sender_amount FROM users, transfers 
-                      WHERE (users.id = receiver or users.id = sender) 
-                      AND sender <> 1 AND receiver <> 1 AND sender <> receiver 
-                      GROUP BY nick ORDER BY total_sender_amount DESC LIMIT 5; '''
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            users = cursor.fetchall()
+            users = db.get_beggars()
             if not users:
                 msg = f'Hi {nick}. Something went wrong, no top 5 beggars.'
                 await send_dm(user_id, msg)
             else:
                 top5_str = 'The top 5 players who received the most shazbucks are: '
                 for i, user in enumerate(users):
-                    nick: str = user[0]
-                    discord_id: int = user[1]
-                    amount: int = user[2]
+                    nick = user[0]
+                    discord_id = user[1]
+                    amount = user[2]
                     member = await fetch_member(discord_id)
                     username = member.display_name if member else nick
                     top5_str += f'{username} ({amount})'
@@ -680,25 +652,18 @@ def start_bot(db, logger):
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            sql = ''' SELECT nick, discord_id, SUM(CASE WHEN users.id = sender THEN amount ELSE -amount END) 
-                      AS total_sender_amount FROM users, transfers 
-                      WHERE (users.id = receiver or users.id = sender) 
-                      AND sender <> 1 AND receiver <> 1 AND sender <> receiver 
-                      GROUP BY nick ORDER BY total_sender_amount DESC LIMIT 5; '''
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            users = cursor.fetchall()
+            users = db.get_philanthropists()
             if not users:
                 msg = f'Hi {nick}. Something went wrong, no top 5 gifters.'
                 await send_dm(user_id, msg)
             else:
                 top5_str = 'The top 5 players who gifted the most shazbucks are: '
                 for i, user in enumerate(users):
-                    nick: str = user[0]
-                    discord_id: int = user[1]
-                    amount: int = user[2]
-                    member = await fetch_member(discord_id)
-                    username = member.display_name if member else nick
+                    philanthropist_nick = user[0]
+                    philanthropist_id = user[1]
+                    amount = user[2]
+                    member = await fetch_member(philanthropist_id)
+                    username = member.display_name if member else philanthropist_nick
                     top5_str += f'{username} ({amount})'
                     if i < len(users) - 2:
                         top5_str += ', '
@@ -836,26 +801,20 @@ def start_bot(db, logger):
         else:
             user_id: int = data[0]
             change_nick: str = data[1]
-            sql = ''' SELECT team1, team2, queue, status FROM games 
-                      WHERE id = ? AND (status = ? OR status = ? OR status = ? OR status = ? OR status = ?) '''
-            values = (game_id, GameStatus.INPROGRESS, GameStatus.CANCELLED, GameStatus.TEAM1,
-                      GameStatus.TEAM2, GameStatus.TIED)
-            cursor = conn.cursor()
-            cursor.execute(sql, values)
-            game = cursor.fetchone()
+            game = db.get_game_by_id(game_id)
             if not game:
                 msg = (f'Hi {change_nick}. The game with id {game_id} does not exist or it\'s status is not '
                        f'InProgress, Team1, Team2, Tied or Cancelled.')
                 await send_dm(user_id, msg)
             else:
-                team_id_strs: Tuple[str, str] = game[0:2]
+                team_id_strs: tuple[str, str] = game[0:2]
                 capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
                 queue: str = game[2]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                     capt_nicks = [await get_nick_from_discord_id(did) for did in capt_ids_strs]
                 else:
                     capt_nicks = capt_ids_strs
-                old_status = game[3]
+                old_status: GameStatus = game[3]
                 new_status = None
                 if result in ['1', 'Red', 'red', 'Team1', 'team1', capt_nicks[0]]:
                     new_status = GameStatus.TEAM1
@@ -884,17 +843,15 @@ def start_bot(db, logger):
                         # Initialize parameters
                         total_amounts = {GameStatus.TEAM1.name: 0, GameStatus.TEAM2.name: 0, GameStatus.TIED.name: 0}
                         winners = []
-                        sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id 
-                                  FROM users, wagers 
-                                  WHERE game_id = ? AND users.id = wagers.user_id AND result <> ? AND result <> ? '''
-                        cursor = conn.cursor()
-                        cursor.execute(sql, (game_id, WagerResult.CANCELLED, WagerResult.CANCELLEDONESIDED))
-                        wagers = cursor.fetchall()
+                        wagers = db.get_wagers_from_game_id(game_id, WagerResult.INPROGRESS)
+                        wagers += db.get_wagers_from_game_id(game_id, WagerResult.WON)
+                        wagers += db.get_wagers_from_game_id(game_id, WagerResult.LOST)
+                        wagers += db.get_wagers_from_game_id(game_id, WagerResult.CANCELLEDNOWINNERS)
                         # Calculate the total amounts bet on each outcome
                         for wager in wagers:
-                            prediction: str = GameStatus(wager[2]).name
-                            amount: int = wager[3]
-                            total_amounts[prediction] += amount
+                            prediction = wager[2]
+                            amount = wager[3]
+                            total_amounts[prediction.name] += amount
                         total_amount = sum(total_amounts.values())
                         if old_status != GameStatus.INPROGRESS:
                             # Calculate the payout ratio (0 if no bets on winning outcome)
@@ -909,9 +866,9 @@ def start_bot(db, logger):
                             db.finish_game(game_id, GameStatus.INPROGRESS)
                             # Claw back previous payout
                             for wager in wagers:
-                                wager_id: int = wager[0]
-                                user_id: int = wager[1]
-                                prediction: int = wager[2]
+                                wager_id = wager[0]
+                                user_id = wager[1]
+                                prediction = wager[2]
                                 amount: int = wager[3]
                                 nick: str = wager[4]
                                 discord_id: int = wager[5]
@@ -1048,20 +1005,15 @@ def start_bot(db, logger):
         else:
             user_id: int = data[0]
             nick: str = data[1]
-            sql = ''' SELECT queue, team1, team2 FROM games 
-                      WHERE id = ? AND status = ? '''
-            values = (game_id, GameStatus.INPROGRESS)
-            cursor = conn.cursor()
-            cursor.execute(sql, values)
-            game = cursor.fetchone()
+            game = db.get_game_by_id(game_id)
             if not game:
                 msg = f'Hi {nick}. The game with id {game_id} does not exist or it\'s status is not InProgress.'
                 await send_dm(user_id, msg)
             else:
-                queue: str = game[0]
-                outcome1: str = game[1]
-                outcome2: str = game[2]
+                outcome1 = game[0]
+                outcome2 = game[1]
                 outcomes = [outcome1, outcome2]
+                queue = game[2]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                     msg = (f'Hi {nick}. The game with id {game_id} is not a custom bet, you cannot end the bet this '
                            f'way. Please use the !change_bet command.')
@@ -1188,22 +1140,17 @@ def start_bot(db, logger):
         success = False
         requestor = ctx.message.author
         if requestor.id == REDFOX_DISCORD_ID:
-            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
-                      WHERE (channel_id = ? or channel_id = 0) AND end_time > strftime('%s','now') '''
+            motds = db.get_motds(ctx.channel.id, general=True)
         else:
-            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
-                      WHERE channel_id = ? AND end_time > strftime('%s','now') '''
-        cursor = conn.cursor()
-        cursor.execute(sql, (ctx.channel.id,))
-        motds = cursor.fetchall()
+            motds = db.get_motds(ctx.channel.id)
         if motds:
             for motd in motds:
-                motd_id: int = motd[0]
-                author_id: int = motd[1]
-                channel_id: int = motd[2]
-                start_time: int = motd[3]
-                end_time: int = motd[4]
-                motd_message: str = motd[5]
+                motd_id = motd[0]
+                author_id = motd[1]
+                channel_id = motd[2]
+                start_time = motd[3]
+                end_time = motd[4]
+                motd_message = motd[5]
                 author_nick = await get_nick_from_discord_id(str(author_id))
                 motd_info = (f'MOTD {motd_id} set by {author_nick} {"on all channels " if channel_id == 0 else ""}'
                              f'on {datetime.utcfromtimestamp(start_time)} and '
@@ -1221,14 +1168,10 @@ def start_bot(db, logger):
         success = False
         requestor = ctx.message.author
         if requestor.id == REDFOX_DISCORD_ID:
-            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
-                      WHERE id = ? AND (channel_id = ? or channel_id = 0) AND end_time > strftime('%s','now') '''
+            motd = db.get_motd(ctx.channel.id, motd_id, general=True)
         else:
-            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
-                      WHERE id = ? AND channel_id = ? AND end_time > strftime('%s','now') '''
-        cursor = conn.cursor()
-        cursor.execute(sql, (motd_id, ctx.channel.id))
-        motd = cursor.fetchone()
+            motd = db.get_motd(ctx.channel.id, motd_id)
+
         if motd:
             db.end_motd(motd_id)
             success = True

@@ -2,7 +2,6 @@
 """database handling for shazbuckbot"""
 
 import sqlite3
-from typing import Tuple, List
 from helper_classes import GameStatus, WagerResult, TimeDuration
 
 DATABASE_VERSION = 1
@@ -153,11 +152,68 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM users WHERE discord_id = ? ''', (discord_id,))
-        return cur.fetchone()
+        return tuple(cur.fetchone())
+
+    def get_top5(self) -> list[tuple[str, int, int]]:
+        """Returns the top 5
+
+        :return: List of Tuples with the data of the top 5 (nick, discord_id and balance)
+        """
+        sql = ''' SELECT nick, discord_id, balance FROM users ORDER BY balance DESC LIMIT 5 '''
+        cursor = self.conn.cursor()
+        cursor.execute(sql)
+        data = cursor.fetchall()
+        top5 = []
+        for user in data:
+            nick: str = user[0]
+            discord_id: int = user[1]
+            balance: int = user[2]
+            top5.append((nick, discord_id, balance))
+        return top5
+
+    def get_beggars(self) -> list[tuple[str, int, int]]:
+        """Returns the beggars
+
+        :return: List of Tuples with the data of the beggars (nick, discord_id and balance)
+        """
+        sql = ''' SELECT nick, discord_id, SUM(CASE WHEN users.id = receiver THEN amount ELSE -amount END) 
+                  AS total_sender_amount FROM users, transfers 
+                  WHERE (users.id = receiver or users.id = sender) AND sender <> 1 AND receiver <> 1 
+                  AND sender <> receiver GROUP BY nick ORDER BY total_sender_amount DESC LIMIT 5 '''
+        cursor = self.conn.cursor()
+        cursor.execute(sql)
+        data = cursor.fetchall()
+        beggars = []
+        for user in data:
+            nick: str = user[0]
+            discord_id: int = user[1]
+            amount: int = user[2]
+            beggars.append((nick, discord_id, amount))
+        return beggars
+
+    def get_philanthropists(self) -> list[tuple[str, int, int]]:
+        """Returns the philanthropists
+
+        :return: List of Tuples with the data of the philanthropists (nick, discord_id and balance)
+        """
+        sql = ''' SELECT nick, discord_id, SUM(CASE WHEN users.id = sender THEN amount ELSE -amount END) 
+                  AS total_sender_amount FROM users, transfers
+                  WHERE (users.id = receiver or users.id = sender) AND sender <> 1 AND receiver <> 1 
+                  AND sender <> receiver GROUP BY nick ORDER BY total_sender_amount DESC LIMIT 5 '''
+        cursor = self.conn.cursor()
+        cursor.execute(sql)
+        data = cursor.fetchall()
+        beggars = []
+        for user in data:
+            nick: str = user[0]
+            discord_id: int = user[1]
+            amount: int = user[2]
+            beggars.append((nick, discord_id, amount))
+        return beggars
 
     def set_user_data(self, user_id, fields, values) -> None:
         """Set values of a user
-    
+
         :param int user_id: The id of the user to change
         :param tuple[str] fields: Tuple of fields to be changed
         :param tuple values: Values of the fields to be changed
@@ -269,7 +325,7 @@ class DataBase:
         cur.execute(sql, values)
         self.conn.commit()
 
-    def games_in_progress(self, game_id) -> List[Tuple[int, str, str, str, int, int]]:
+    def get_in_progress_games(self, game_id) -> list[tuple[int, str, str, str, int, int]]:
         """Provide data on games that are in progress
 
         :param int game_id: id of the game or zero to return the data on all in progress games
@@ -294,12 +350,50 @@ class DataBase:
         games = []
         for game in data:
             game_id: int = game[0]
-            teams: Tuple[str, str] = game[1:3]
+            teams: tuple[str, str] = game[1:3]
             queue: str = game[3]
             time_since_pick: int = game[4]
             bet_window: int = game[5]
             games.append((game_id,) + teams + (queue, time_since_pick, bet_window))
         return games
+
+    def get_running_games(self) -> list[tuple[int, str, str, str, GameStatus, int, int]]:
+        """Provide data on the currently running games
+
+        :return: List of Tuples containing the game_id, team1, team2, queue, status, time since pick and bet window
+        for each game
+        """
+        sql = ''' SELECT id, team1, team2, queue, status, 
+                  CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
+                  bet_window FROM games WHERE status = ? OR status = ? '''
+        cursor = self.conn.cursor()
+        cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS))
+        data = cursor.fetchall()
+        games = []
+        for game in data:
+            game_id: int = game[0]
+            teams: tuple[str, str] = game[1:3]
+            queue: str = game[3]
+            status: GameStatus = game[4]
+            time_since_pick: int = game[5]
+            bet_window: int = game[6]
+            games.append((game_id,) + teams + (queue, status, time_since_pick, bet_window))
+        return games
+
+    def get_game_by_id(self, game_id) -> tuple[str, str, str, GameStatus]:
+        """Provide data on a game
+
+        :param int game_id: The id of the game
+        :return: List of Tuples containing the team1, team2, queue, status, time since pick and bet_window
+        for each game
+        """
+        sql = ''' SELECT team1, team2, queue, status FROM games 
+                  WHERE id = ? AND (status = ? OR status = ? OR status = ? OR status = ? OR status = ?) '''
+        values = (game_id, GameStatus.INPROGRESS, GameStatus.CANCELLED, GameStatus.TEAM1, GameStatus.TEAM2,
+                  GameStatus.TIED)
+        cursor = self.conn.cursor()
+        cursor.execute(sql, values)
+        return tuple(cursor.fetchone())
 
     def create_wager(self, wager) -> int:
         """Create a new wager into the wagers table
@@ -357,15 +451,17 @@ class DataBase:
         cur.execute(sql, values)
         self.conn.commit()
 
-    def wagers_from_game_id(self, game_id, wager_result) -> List[Tuple[int, int, int, str, str, str]]:
+    def get_wagers_from_game_id(self, game_id, wager_result) -> list[tuple[int, int, GameStatus, int, str, int, str,
+                                                                           str]]:
         """Return all the data of the wagers placed on a certain game
         
         :param int game_id: Game id of the game
         :param WagerResult wager_result: Only return wagers with this status
-        :return: List of wager data (id, user_id, amount, nick, team1, team2)
+        :return: List of wager data (id, user_id, prediction, amount, nick, discord_id, team1, team2)
         """
-        sql = ''' SELECT wagers.id, user_id, amount, nick, team1, team2 FROM wagers, users, games 
-                  WHERE game_id = ? AND users.id = user_id AND games.id = game_id AND result = ?'''
+        sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id, team1, team2 
+                  FROM wagers, users, games 
+                  WHERE game_id = ? AND users.id = user_id AND games.id = game_id AND result = ? '''
         cursor = self.conn.cursor()
         cursor.execute(sql, (game_id, wager_result))
         data = cursor.fetchall()
@@ -373,11 +469,28 @@ class DataBase:
         for wager in data:
             wager_id: int = wager[0]
             user_id: int = wager[1]
-            amount: int = wager[2]
-            nick: str = wager[3]
-            teams: Tuple[str, str] = wager[4:6]
-            wagers.append((wager_id, user_id, amount, nick) + teams)
+            prediction: GameStatus = wager[2]
+            amount: int = wager[3]
+            nick: str = wager[4]
+            discord_id: int = wager[5]
+            teams: tuple[str, str] = wager[6:8]
+            wagers.append((wager_id, user_id, prediction, amount, nick, discord_id) + teams)
         return wagers
+
+    def get_current_wager(self, user_id, game_id) -> tuple[int, GameStatus]:
+        """Return all the data of the wagers placed on a certain game
+
+        :param int user_id: User id of the person placing the bet
+        :param int game_id: Game id of the game
+        :return: Tuple of the wager data (id, prediction)
+        """
+        sql = ''' SELECT id, prediction FROM wagers WHERE user_id = ? AND game_id = ? AND result = ? '''
+        values = (user_id, game_id, WagerResult.INPROGRESS)
+        cursor = self.conn.cursor()
+        cursor.execute(sql, values)
+        data = cursor.fetchone()
+        if data:
+            return tuple(data)
 
     def create_motd(self, motd) -> int:
         """Create a new motd into the motds table
@@ -403,3 +516,48 @@ class DataBase:
         cur = self.conn.cursor()
         cur.execute(sql, (motd_id,))
         self.conn.commit()
+
+    def get_motd(self, channel_id, motd_id, *, general=False) -> tuple[int, int, int, int, str]:
+        """Get the currently active MOTDs
+
+        :param motd_id: The id of the MOTD
+        :param general: If True searches in the general MOTDs as well as the channel specific ones
+        :param channel_id: The id of the channel
+        :return: List of Tuples of the motd data (id, discord_id, channel_id, start_time, end_time, message)
+        """
+        if general:
+            sql = ''' SELECT discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE id = ? AND (channel_id = 0 OR channel_id = ?) AND end_time > strftime('%s','now') '''
+        else:
+            sql = ''' SELECT discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE id = ? AND channel_id = ? AND end_time > strftime('%s','now') '''
+        cursor = self.conn.cursor()
+        cursor.execute(sql, (motd_id, channel_id))
+        return tuple(cursor.fetchone())
+
+    def get_motds(self, channel_id, *, general=False) -> list[tuple[int, int, int, int, int, str]]:
+        """Get the currently active MOTDs
+
+        :param general: If True return the general MOTDs as well as the channel specific ones
+        :param channel_id: The id of the channel
+        :return: List of Tuples of the motd data (id, discord_id, channel_id, start_time, end_time, message)
+        """
+        if general:
+            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE (channel_id = 0 OR channel_id = ?) AND end_time > strftime('%s','now') '''
+        else:
+            sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
+                      WHERE channel_id = ? AND end_time > strftime('%s','now') '''
+        cursor = self.conn.cursor()
+        cursor.execute(sql, (channel_id,))
+        data = cursor.fetchall()
+        motds = []
+        for motd in data:
+            id: int = motd[0]
+            author_id: int = motd[1]
+            channel_id: int = motd[2]
+            start_time: int = motd[3]
+            end_time: int = motd[4]
+            message: str = motd[5]
+            motds.append((id, author_id, channel_id, start_time, end_time, message))
+        return motds

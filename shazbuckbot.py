@@ -68,21 +68,16 @@ def caseless_equal(left, right):
     return normalize_caseless(left) == normalize_caseless(right)
 
 
-def suggest_even_teams(conn, player_ids) -> (List[int], List[int], float):
+def suggest_even_teams(db, player_ids) -> (List[int], List[int], float):
     """Suggest even teams based on TrueSkill ratings
 
-    :param sqlite3.Connection conn: Connection to the database
+    :param DataBase db: Connection to the database
     :param list[int] player_ids: List of discord ids
     :return: Two lists of discord ids and the chance to draw
     """
     player_ratings = {}
     for player_id in player_ids:
-        sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
-                  FROM trueskills WHERE discord_id = ? ) '''
-        values = (player_id, player_id)
-        cursor = conn.cursor()
-        cursor.execute(sql, values)
-        data = cursor.fetchone()
+        data = db.get_trueskill_rating(player_id)
         if data:
             player_ratings[player_id] = Rating(data[0], data[1])
         else:
@@ -404,7 +399,14 @@ def start_bot(db, logger):
                 msg = f'Hi {nick}, you cannot bet a negative or zero amount.'
                 await send_dm(user_id, msg)
             else:
-                games = db.get_in_progress_games(game_id)
+                if game_id == 0:
+                    games = db.get_games_by_status(GameStatus.INPROGRESS)
+                else:
+                    game = db.get_game_by_id(game_id)
+                    if game[4] == GameStatus.INPROGRESS:
+                        games = [game]
+                    else:
+                        games = []
                 if not games:
                     if game_id == 0:
                         msg = f'Hi {nick}. No games are running. Please wait until teams are picked.'
@@ -413,47 +415,47 @@ def start_bot(db, logger):
                                f'the id or wait until teams are picked.')
                     await send_dm(user_id, msg)
                 else:
-                    game_id: int = games[-1][0]
-                    queue: str = games[-1][3]
-                    bet_window: int = games[-1][5]
+                    game_id = games[-1][0]
+                    queue = games[-1][3]
+                    bet_window = games[-1][6]
                     prediction = 0
                     time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
                         prediction += GameStatus.TEAM1
-                        team_id_str: str = games[-1][1]
+                        team_id_str = games[-1][1]
                         if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                             capt_id_str = team_id_str.split()[0]
                             winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
-                        time_since_pick = games[-1][4]
+                        time_since_pick = games[-1][5]
                     elif winner == "2" or caseless_equal(winner, "Blue"):
                         prediction += GameStatus.TEAM2
-                        team_id_str: str = games[-1][2]
+                        team_id_str = games[-1][2]
                         if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                             capt_id_str = team_id_str.split()[0]
                             winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
-                        time_since_pick = games[-1][4]
+                        time_since_pick = games[-1][5]
                     else:
                         for game in games:
-                            team_id_strs: Tuple[str, str] = game[1:3]
-                            queue: str = game[3]
+                            team_id_strs = game[1:3]
+                            queue = game[3]
                             if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                                 capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
                                 capt_nicks = [(await get_nick_from_discord_id(did)) for did in capt_ids_strs]
                             else:
                                 capt_nicks = team_id_strs
                             if caseless_equal(winner, capt_nicks[0]):
-                                game_id: int = game[0]
+                                game_id = game[0]
                                 prediction += GameStatus.TEAM1
-                                time_since_pick = game[4]
+                                time_since_pick = game[5]
                                 winner = capt_nicks[0]
                             elif caseless_equal(winner, capt_nicks[1]):
-                                game_id: int = game[0]
+                                game_id = game[0]
                                 prediction += GameStatus.TEAM2
-                                time_since_pick = game[4]
+                                time_since_pick = game[5]
                                 winner = capt_nicks[1]
                     if prediction == 0:
                         if game_id == 0:
@@ -531,7 +533,8 @@ def start_bot(db, logger):
                 for motd in motds:
                     show_str += f'MOTD: {motd[5]}\n'
             # Find running games
-            games = db.get_running_games()
+            games = db.get_games_by_status(GameStatus.PICKING)
+            games += db.get_games_by_status(GameStatus.INPROGRESS)
             if not games:
                 show_str += f'No games are currently walking or running'
             else:
@@ -802,19 +805,20 @@ def start_bot(db, logger):
             user_id: int = data[0]
             change_nick: str = data[1]
             game = db.get_game_by_id(game_id)
-            if not game:
-                msg = (f'Hi {change_nick}. The game with id {game_id} does not exist or it\'s status is not '
-                       f'InProgress, Team1, Team2, Tied or Cancelled.')
+            if not game or game[4] not in (GameStatus.INPROGRESS, GameStatus.TEAM1, GameStatus.TEAM2, GameStatus.TIED,
+                                           GameStatus.CANCELLED):
+                msg = (f'Hi {change_nick}. The game with id {game_id} does not exist or its status is not InProgress, '
+                       f'Team1, Team2, Tied or Cancelled.')
                 await send_dm(user_id, msg)
             else:
-                team_id_strs: tuple[str, str] = game[0:2]
+                team_id_strs: tuple[str, str] = game[1:3]
                 capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
-                queue: str = game[2]
+                queue: str = game[3]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                     capt_nicks = [await get_nick_from_discord_id(did) for did in capt_ids_strs]
                 else:
                     capt_nicks = capt_ids_strs
-                old_status: GameStatus = game[3]
+                old_status: GameStatus = game[4]
                 new_status = None
                 if result in ['1', 'Red', 'red', 'Team1', 'team1', capt_nicks[0]]:
                     new_status = GameStatus.TEAM1
@@ -1006,14 +1010,14 @@ def start_bot(db, logger):
             user_id: int = data[0]
             nick: str = data[1]
             game = db.get_game_by_id(game_id)
-            if not game:
-                msg = f'Hi {nick}. The game with id {game_id} does not exist or it\'s status is not InProgress.'
+            if not game or game[4] is not GameStatus.INPROGRESS:
+                msg = f'Hi {nick}. The game with id {game_id} does not exist or its status is not InProgress.'
                 await send_dm(user_id, msg)
             else:
-                outcome1 = game[0]
-                outcome2 = game[1]
+                outcome1 = game[1]
+                outcome2 = game[2]
                 outcomes = [outcome1, outcome2]
-                queue = game[2]
+                queue = game[3]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                     msg = (f'Hi {nick}. The game with id {game_id} is not a custom bet, you cannot end the bet this '
                            f'way. Please use the !change_bet command.')
@@ -1203,7 +1207,7 @@ def start_bot(db, logger):
         game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
         game_id = db.create_game(game)
         logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
-        best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(conn, player_ids)
+        best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(db, player_ids)
         team1_str = '<@!' + '>, <@!'.join([str(i) for i in best_team1_ids]) + '>'
         team2_str = '<@!' + '>, <@!'.join([str(i) for i in best_team2_ids]) + '>'
         result_msg = f'Suggested teams: {team1_str} versus {team2_str} ({best_chance_to_draw:.1%} chance to draw).'

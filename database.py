@@ -2,6 +2,9 @@
 """database handling for shazbuckbot"""
 
 import sqlite3
+
+from trueskill import Rating, expose
+
 from helper_classes import GameStatus, WagerResult, TimeDuration
 
 DATABASE_VERSION = 1
@@ -140,7 +143,7 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM users WHERE id = ? ''', (user_id,))
-        return cur.fetchone()
+        return tuple(cur.fetchone())
 
     def get_user_data_by_discord_id(self, discord_id, fields) -> tuple:
         """Get user data from database
@@ -325,14 +328,15 @@ class DataBase:
         cur.execute(sql, values)
         self.conn.commit()
 
-    def get_games_by_status(self, status) -> list[tuple[int, str, str, str, GameStatus, int, int]]:
+    def get_games_by_status(self, status) -> list[tuple[int, str, str, str, GameStatus, int, int, int]]:
         """Provide data on the currently running games
 
         :param GameStatus status: The status of the games to search for
-        :return: List of Tuples containing the game_id, team1, team2, queue, status, time since pick and bet window
-        for each game
+        :return: List of Tuples containing the game_id, team1, team2, queue, status, time since start, time since pick
+        and bet window for each game
         """
         sql = ''' SELECT id, team1, team2, queue, status, 
+                  CAST (((julianday('now') - julianday(start_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   bet_window FROM games WHERE status = ? '''
         cursor = self.conn.cursor()
@@ -344,25 +348,38 @@ class DataBase:
             teams: tuple[str, str] = game[1:3]
             queue: str = game[3]
             status: GameStatus = game[4]
-            time_since_pick: int = game[5]
-            bet_window: int = game[6]
-            games.append((game_id,) + teams + (queue, status, time_since_pick, bet_window))
+            time_since_start: int = game[5]
+            time_since_pick: int = game[6]
+            bet_window: int = game[7]
+            games.append((game_id,) + teams + (queue, status, time_since_start, time_since_pick, bet_window))
         return games
 
-    def get_game_by_id(self, game_id) -> tuple[int, str, str, str, GameStatus, int, int]:
+    def get_game_by_id(self, game_id) -> tuple[int, str, str, str, GameStatus, int, int, int]:
         """Provide data on a game
 
         :param int game_id: The id of the game
-        :return: List of Tuples containing the game_id, team1, team2, queue, status, time since pick and bet window
+        :return: List of Tuples containing the game_id, team1, team2, queue, status, time since start, time since pick
+        and bet window
         """
-        sql = ''' SELECT id, team1, team2, queue, status, 
+        sql = ''' SELECT id, team1, team2, queue, status,
+                  CAST (((julianday('now') - julianday(start_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   bet_window FROM games WHERE id = ? '''
-        values = (game_id, GameStatus.INPROGRESS, GameStatus.CANCELLED, GameStatus.TEAM1, GameStatus.TEAM2,
-                  GameStatus.TIED)
         cursor = self.conn.cursor()
         cursor.execute(sql, (game_id,))
         return tuple(cursor.fetchone())
+
+    def get_game_data(self, game_id, fields) -> tuple:
+        """Get user data from database
+
+        :param int game_id: The id of the user
+        :param Tuple[str] fields: tuple of field names
+        :return: A tuple containing the requested data
+        """
+        fields = ', '.join(fields)
+        cur = self.conn.cursor()
+        cur.execute(f''' SELECT {fields} FROM games WHERE id = ? ''', (game_id,))
+        return tuple(cur.fetchone())
 
     def create_wager(self, wager) -> int:
         """Create a new wager into the wagers table
@@ -531,15 +548,28 @@ class DataBase:
             motds.append((id, author_id, channel_id, start_time, end_time, message))
         return motds
 
-    def get_trueskill_rating(self, player_id) -> tuple[int, int]:
+    def get_trueskill_rating(self, player_id) -> tuple[int, int, int]:
         """Return the trueskill rating of a player
 
         :param int player_id: Discord id of the player
-        :return: Tuple of the mean and standard deviation of the trueskill rating
+        :return: Tuple of the mean and standard deviation of the trueskill rating and the number of recorded matches
         """
-        sql = ''' SELECT mu, sigma FROM trueskills WHERE discord_id = ? AND game_id IN ( SELECT MAX(game_id) 
-                  FROM trueskills WHERE discord_id = ? ) '''
-        values = (player_id, player_id)
+        sql = ''' SELECT mu, sigma, ROW_NUMBER() OVER(ORDER BY game_id ASC) AS game_nr FROM trueskills 
+                  WHERE discord_id = ? ORDER BY game_id DESC LIMIT 1 '''
         cursor = self.conn.cursor()
-        cursor.execute(sql, values)
+        cursor.execute(sql, (player_id,))
         return tuple(cursor.fetchone())
+
+    def new_trueskill_rating(self, player_id, game_id, rating) -> None:
+        """
+
+        :param player_id: The id of the player to update
+        :param game_id: The id of the game that cause the update
+        :param Rating rating: The new player rating
+        :return:
+        """
+        trueskill_update = (player_id, game_id, rating.mu, rating.sigma, expose(rating))
+        sql = ''' INSERT INTO trueskills(discord_id, game_id, mu, sigma, trueskill) VALUES(?, ?, ?, ?, ?) '''
+        cursor = self.conn.cursor()
+        cursor.execute(sql, trueskill_update)
+        self.conn.commit()

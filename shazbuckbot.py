@@ -6,7 +6,9 @@ import atexit
 import os
 import re
 import time
-import typing
+# import typing
+from typing import List, Tuple, Optional
+
 from datetime import datetime
 from itertools import combinations, chain
 from math import sqrt, floor
@@ -15,8 +17,6 @@ import unicodedata
 
 import git
 import requests
-import sqlite3
-from typing import List, Tuple
 import logging
 from logging import Logger
 
@@ -48,7 +48,7 @@ REDFOX_DISCORD_ID: int = config['redfox_discord_id']
 PUG_CHANNEL_ID: int = config['pug_channel_id']
 BOT_CHANNEL_ID: int = config['bot_channel_id']
 DM_TIME_TO_WAIT = 0.21  # Seconds
-DURATION_TOLERANCE = 60  # Minutes
+DURATION_TOLERANCE = 30  # Minutes
 REACTIONS = ["👎", "👍"]
 TIE_PAYOUT_SCALE = 0.5
 MAX_RETRY_COUNT = 10
@@ -98,10 +98,10 @@ def suggest_even_teams(db, player_ids) -> (List[int], List[int], float):
     return best_team1_ids, best_team2_ids, best_chance_to_draw
 
 
-def calculate_win_chance(conn, teams_ids) -> float:
+def calculate_win_chance(db, teams_ids) -> float:
     """Calculate the chance for the first team to win
 
-    :param sqlite3.Connection conn: Connection to the database
+    :param DataBase db: Connection to the database
     :param tuple[list[int], list[int]] teams_ids: Tuple of Lists of discord ids of players on each team
     :return: Chance for the first team to win
     """
@@ -110,12 +110,7 @@ def calculate_win_chance(conn, teams_ids) -> float:
     for team_ids in teams_ids:
         team_rating = []
         for player_id in team_ids:
-            sql = ''' SELECT mu, sigma, ROW_NUMBER() OVER(ORDER BY game_id ASC) AS game_nr 
-                      FROM trueskills WHERE discord_id = ? ORDER BY game_id DESC LIMIT 1 '''
-            values = (player_id,)
-            cursor = conn.cursor()
-            cursor.execute(sql, values)
-            data = cursor.fetchone()
+            data = db.get_trueskill_rating(player_id)
             if data:
                 if data[2] < MIN_NUM_GAMES_FOR_TS:
                     enough_data = False
@@ -417,7 +412,7 @@ def start_bot(db, logger):
                 else:
                     game_id = games[-1][0]
                     queue = games[-1][3]
-                    bet_window = games[-1][6]
+                    bet_window = games[-1][7]
                     prediction = 0
                     time_since_pick = 0
                     if winner == "1" or caseless_equal(winner, "Red"):
@@ -428,7 +423,7 @@ def start_bot(db, logger):
                             winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
-                        time_since_pick = games[-1][5]
+                        time_since_pick = games[-1][6]
                     elif winner == "2" or caseless_equal(winner, "Blue"):
                         prediction += GameStatus.TEAM2
                         team_id_str = games[-1][2]
@@ -437,7 +432,7 @@ def start_bot(db, logger):
                             winner = await get_nick_from_discord_id(capt_id_str)
                         else:
                             winner = team_id_str
-                        time_since_pick = games[-1][5]
+                        time_since_pick = games[-1][6]
                     else:
                         for game in games:
                             team_id_strs = game[1:3]
@@ -450,12 +445,12 @@ def start_bot(db, logger):
                             if caseless_equal(winner, capt_nicks[0]):
                                 game_id = game[0]
                                 prediction += GameStatus.TEAM1
-                                time_since_pick = game[5]
+                                time_since_pick = game[6]
                                 winner = capt_nicks[0]
                             elif caseless_equal(winner, capt_nicks[1]):
                                 game_id = game[0]
                                 prediction += GameStatus.TEAM2
-                                time_since_pick = game[5]
+                                time_since_pick = game[6]
                                 winner = capt_nicks[1]
                     if prediction == 0:
                         if game_id == 0:
@@ -543,8 +538,8 @@ def start_bot(db, logger):
                     teams = game[1:3]
                     queue = game[3]
                     game_status = game[4]
-                    run_time = game[5]
-                    bet_window = game[6]
+                    time_since_pick = game[6]
+                    bet_window = game[7]
                     capt_ids_strs = [team.split()[0] for team in teams]
                     if queue in ('NA', 'EU', 'AU', 'TestBranch'):
                         capt_nicks = [await get_nick_from_discord_id(did) for did in capt_ids_strs]
@@ -561,9 +556,9 @@ def start_bot(db, logger):
                                      f'{capt_nicks[0]} vs '
                                      f'{capt_nicks[1]}\n')
                     elif game_status == GameStatus.INPROGRESS:
-                        if run_time <= bet_window:
-                            show_str += (f'{queue}: Game {game_id} ({bet_window - run_time} seconds left to bet): '
-                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                        if time_since_pick <= bet_window:
+                            show_str += (f'{queue}: Game {game_id} ({bet_window - time_since_pick} seconds left to '
+                                         f'bet): {capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
                             show_str += (f'{queue}: Game {game_id} (Betting closed): '
@@ -971,8 +966,8 @@ def start_bot(db, logger):
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_start_game(ctx, outcome1: str, outcome2: str,
-                             duration: typing.Optional[TimeDuration] = DEFAULT_BET_WINDOW,
-                             description: typing.Optional[str] = ''):
+                             duration: Optional[TimeDuration] = DEFAULT_BET_WINDOW,
+                             description: Optional[str] = ''):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
@@ -1125,8 +1120,8 @@ def start_bot(db, logger):
     @cmd_motd.command(name='create', help='Create a new Message of the Day')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
-    async def cmd_motd_create(ctx, all_channels: typing.Optional[bool] = False,
-                              duration: typing.Optional[TimeDuration] = DEFAULT_MOTD_TIME, *, motd_message: str):
+    async def cmd_motd_create(ctx, all_channels: Optional[bool] = False,
+                              duration: Optional[TimeDuration] = DEFAULT_MOTD_TIME, *, motd_message: str):
         success = False
         author_id = ctx.message.author.id
         channel_id = ctx.channel.id
@@ -1233,12 +1228,12 @@ def start_bot(db, logger):
                 else:
                     logger.error(f'Could not find discord id for player {nick}')
             team_id_strs += (" ".join(id_strs),)
-        # Find all games that are Picking or InProgress (in case of a repick) sorted latest first
-        sql = ''' SELECT id, team1, team2, status FROM games WHERE queue = ? AND (status = ? OR status = ?) 
-                  ORDER BY start_time DESC '''
-        cursor = conn.cursor()
-        cursor.execute(sql, (queue, GameStatus.PICKING, GameStatus.INPROGRESS))
-        games = cursor.fetchall()
+        data = db.get_games_by_status(GameStatus.PICKING)
+        data += db.get_games_by_status(GameStatus.INPROGRESS)
+        games = []
+        for game in data:
+            if game[3] == queue:
+                games.append(game)
         if not games:
             logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status in that queue!')
             game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
@@ -1246,12 +1241,13 @@ def start_bot(db, logger):
             game_status = GameStatus.PICKING
             logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
         else:
+            games.sort(key=lambda x: x[5], reverse=True)
             game_id = 0
-            game_status = 0
+            game_status = GameStatus.CANCELLED
             # For each returned game, find the names of the captains
             for game in games:
-                team1_id_str: str = game[1]
-                team2_id_str: str = game[2]
+                team1_id_str = game[1]
+                team2_id_str = game[2]
                 capt1_id = int(team1_id_str.split()[0])
                 capt2_id = int(team2_id_str.split()[0])
                 try:
@@ -1269,14 +1265,14 @@ def start_bot(db, logger):
                         logger.error(f'\t{line}')
                     capt2_nick = str(capt2_id)
                 if capt_nicks == (capt1_nick, capt2_nick):
-                    game_id: int = game[0]
-                    game_status: int = game[3]
+                    game_id = game[0]
+                    game_status = game[4]
                     team_id_strs = (str(capt1_id) + " " + " ".join(team_id_strs[0].split()[1:]),
                                     str(capt2_id) + " " + " ".join(team_id_strs[1].split()[1:]))
                     break
                 if capt_nicks == (capt2_nick, capt1_nick):
                     game_id: int = game[0]
-                    game_status: int = game[3]
+                    game_status = game[4]
                     team_id_strs = (str(capt2_id) + " " + " ".join(team_id_strs[0].split()[1:]),
                                     str(capt1_id) + " " + " ".join(team_id_strs[1].split()[1:]))
                     break
@@ -1297,7 +1293,7 @@ def start_bot(db, logger):
         # Estimate chances
         team1_ids = [int(i) for i in team_id_strs[0].split()]
         team2_ids = [int(i) for i in team_id_strs[1].split()]
-        team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
+        team1_win_chance = calculate_win_chance(db, (team1_ids, team2_ids))
         if team1_win_chance > 0:
             result_msg = (f'Teams picked, prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
                           f'({(1 - team1_win_chance):.1%}).')
@@ -1309,15 +1305,13 @@ def start_bot(db, logger):
     async def game_cancelled(message: discord.Message):
         success = False
         # Find the game that was just cancelled
-        cursor = conn.cursor()
-        cursor.execute(''' SELECT id FROM games WHERE status = ? ''', (GameStatus.PICKING,))
-        games = cursor.fetchall()
+        games = db.get_games_by_status(GameStatus.PICKING)
         if not games:
             logger.error('Game cancelled, but no game with Picking status, not sure what game to cancel!')
         elif len(games) > 1:
             logger.error('Game cancelled, but multiple games with Picking status, not sure what game to cancel!')
         else:
-            game_id: int = games[0][0]
+            game_id = games[0][0]
             db.cancel_game(game_id)
             logger.info(f'Game {game_id} cancelled, hopefully it was the right one!')
             success = True
@@ -1335,51 +1329,36 @@ def start_bot(db, logger):
         winner_id = 0
         total_amounts = {}
         winners = []
-        # Find the game that just finished
         game_id = 0
+        # Find the game that just finished
+        games = []
         if game_result == GameStatus.TIED:
-            game_values = (queue, GameStatus.INPROGRESS, duration, DURATION_TOLERANCE)
-            sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
-                      * 24 * 60) AS INTEGER)), team1, team2 
-                      FROM games 
-                      WHERE queue = ? AND status = ? AND ABS(CAST (((julianday('now') 
-                      - julianday(start_time, 'unixepoch')) * 24 * 60) AS INTEGER)) - ? <= ? '''
+            data = db.get_games_by_status(GameStatus.INPROGRESS)
+            for game in data:
+                if abs(game[5] / 60 - duration) <= DURATION_TOLERANCE and game[3] == queue:
+                    games.append(game)
+            if not games:
+                game_result = None
+                logger.error(f'Game finished with a tie in {queue} queue, but no game with InProgress status and '
+                             f'correct time in that queue.')
         else:
             winner_nick = " ".join(result.split(' ')[2:])
             winner_id = (await query_members(winner_nick)).id
             winner_id_str = str(winner_id)
-            game_values = (queue, GameStatus.INPROGRESS, winner_id_str + '%', winner_id_str + '%')
-            sql = ''' SELECT id, ABS(CAST (((julianday('now') - julianday(start_time, 'unixepoch')) 
-                      * 24 * 60) AS INTEGER)),team1, team2 FROM games 
-                      WHERE queue = ? AND status = ? AND (team1 LIKE ? OR team2 LIKE ?) '''
-        cursor = conn.cursor()
-        cursor.execute(sql, game_values)
-        games = cursor.fetchall()
-        if not games:
-            if game_result == GameStatus.TIED:
-                game_result = None
-                logger.error(f'Game finished with a tie in {queue} queue, but no game with InProgress status and '
-                             f'correct time in that queue.')
-            else:
+            data = db.get_games_by_status(GameStatus.INPROGRESS)
+            for game in data:
+                if (abs(game[5] / 60 - duration) <= DURATION_TOLERANCE and game[3] == queue
+                        and (game[1].startswith(winner_id_str) or game[2].startswith(winner_id_str))):
+                    games.append(game)
+            if not games:
                 logger.error(f'Game finished with a win for {winner_nick} in {queue} queue, but no game with '
                              f'InProgress status and that captain in that queue.')
-        else:
-            game_id: int = games[0][0]
-            team_id_strs: Tuple[str, str] = games[0][2:4]
-            # If multiple games running in the same queue match, select the game which duration matches most closely
+        if games:
             if len(games) > 1:
-                duration_offsets: List[int] = [game[1] for game in games]
-                _, idx = min((val, idx) for (idx, val) in enumerate(duration_offsets))
-                # Log info for diagnostics purposes
-                # TODO: remove this block
+                games.sort(key=lambda x: abs(x[5] / 60 - duration))
                 logger.info('Game finished but multiple games match:')
-                for i, game in enumerate(games):
-                    capt_id_strs = [game[2].split()[0], game[3].split()[0]]
-                    capt_nicks = [(await get_nick_from_discord_id(did)) for did in capt_id_strs]
-                    logger.info(f'Game {game[0]}: {" vs ".join(capt_nicks)}, duration offset: {duration_offsets[i]}')
-                logger.info(f'Number {idx} selected: Game {games[idx][0]}.')
-                game_id: int = games[idx][0]
-                team_id_strs: Tuple[str, str] = games[idx][2:4]
+            game_id = games[0][0]
+            team_id_strs = games[0][1:3]
             # Create a list of discord members per team
             teams = ()
             for team_str in team_id_strs:
@@ -1412,13 +1391,7 @@ def start_bot(db, logger):
                 for team in teams:
                     team_rating = []
                     for player in team:
-                        sql = ''' SELECT mu, sigma FROM trueskills 
-                                  WHERE discord_id = ? AND game_id IN ( 
-                                    SELECT MAX(game_id) FROM trueskills WHERE discord_id = ? 
-                                  ) '''
-                        values = (player.id, player.id)
-                        cur.execute(sql, values)
-                        data = cur.fetchone()
+                        data = db.get_trueskill_rating(player.id)
                         if data:
                             team_rating.append(Rating(data[0], data[1]))
                         else:
@@ -1432,13 +1405,8 @@ def start_bot(db, logger):
                 new_team_ratings = rate([team_ratings[0], team_ratings[1]], ranks)
                 for team_idx, team in enumerate(teams):
                     for player_idx, player in enumerate(team):
-                        rating = new_team_ratings[team_idx][player_idx]
-                        trueskill_update = (player.id, game_id, rating.mu, rating.sigma, rating.exposure)
-                        sql = ''' INSERT INTO trueskills(discord_id, game_id, mu, sigma, trueskill)
-                                          VALUES(?, ?, ?, ?, ?) '''
-                        cursor = conn.cursor()
-                        cursor.execute(sql, trueskill_update)
-                        conn.commit()
+                        rating: Rating = new_team_ratings[team_idx][player_idx]
+                        db.new_trueskill_rating(player.id, game_id, rating)
         # Send summary message to the channel, unless nobody placed a bet
         result_msg = ''
         if game_result is None:
@@ -1484,15 +1452,11 @@ def start_bot(db, logger):
         total_amounts = {GameStatus.TEAM1.name: 0, GameStatus.TEAM2.name: 0, GameStatus.TIED.name: 0}
         winners = []
         # Find wagers on this game
-        sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id FROM users, wagers 
-                  WHERE game_id = ? AND users.id = wagers.user_id AND result = ? '''
-        cursor = conn.cursor()
-        cursor.execute(sql, (game_id, WagerResult.INPROGRESS))
-        wagers = cursor.fetchall()
+        wagers = db.get_wagers_from_game_id(game_id, WagerResult.INPROGRESS)
         # Calculate the total amounts bet on each outcome
         for wager in wagers:
-            prediction: str = GameStatus(wager[2]).name
-            amount: int = wager[3]
+            prediction = wager[2].name
+            amount = wager[3]
             total_amounts[prediction] += amount
         # Calculate the payout ratio (0 if no bets on winning outcome, 1.0 if only bets on winning outcome)
         total_amount = sum(total_amounts.values())
@@ -1508,12 +1472,12 @@ def start_bot(db, logger):
                 ratio = total_amount / total_amounts[GameStatus.TIED.name]
         # Resolve each individual bet
         for wager in wagers:
-            wager_id: int = wager[0]
-            user_id: int = wager[1]
-            prediction: int = wager[2]
-            amount: int = wager[3]
-            nick: str = wager[4]
-            discord_id: int = wager[5]
+            wager_id = wager[0]
+            user_id = wager[1]
+            prediction = wager[2]
+            amount = wager[3]
+            nick = wager[4]
+            discord_id = wager[5]
             if ratio == -1:
                 transfer = (bot_user_id, user_id, amount)
                 db.create_transfer(transfer)

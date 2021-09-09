@@ -1573,12 +1573,12 @@ def start_bot(db, logger):
         new_capt, old_capt = message.content.replace('`', '').replace(' as captain', '').split(' has replaced ')
         new_capt_id_str = str((await query_members(new_capt)).id)
         old_capt_id_str = str((await query_members(old_capt)).id)
-        search_str = f'{old_capt_id_str}%'
-        sql = ''' SELECT id, team1, team2 FROM games 
-                  WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
-        cursor = conn.cursor()
-        cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS, search_str, search_str))
-        games = cursor.fetchall()
+        data = db.get_games_by_status(GameStatus.PICKING)
+        data += db.get_games_by_status(GameStatus.INPROGRESS)
+        games = []
+        for game in data:
+            if game[1].startswith(old_capt_id_str) or game[2].startswith(old_capt_id_str):
+                games.append(game)
         if not games:
             logger.error(f'Captain replaced, but no game with {old_capt} as captain and Picking or InProgress '
                          f'status, not sure what game to replace a captain!')
@@ -1587,9 +1587,9 @@ def start_bot(db, logger):
                 logger.warning(f'Captain replaced, but multiple games with {old_capt} as captain and Picking or '
                                f'InProgress status, not sure what game to replace {old_capt}! Replacing '
                                f'{old_capt} in the last game and hoping for the best!')
-            game_id: int = games[-1][0]
-            team1: str = games[-1][1]
-            team2: str = games[-1][2]
+            game_id = games[-1][0]
+            team1 = games[-1][1]
+            team2 = games[-1][2]
             if (old_capt_id_str in team1 or team2) and (new_capt_id_str in team1 or team2):
                 team1 = team1.replace(old_capt_id_str, '#')
                 team2 = team2.replace(old_capt_id_str, '#')
@@ -1609,12 +1609,12 @@ def start_bot(db, logger):
         old_player, new_player = message.content.replace('`', '').split(' has been substituted with ')
         old_player_id_str = str((await query_members(old_player)).id)
         new_player_id_str = str((await query_members(new_player)).id)
-        search_str = f'%{old_player_id_str}%'
-        sql = ''' SELECT id, team1, team2, status FROM games 
-                  WHERE (status = ? OR status = ?) AND (team1 LIKE ? OR team2 LIKE ?)'''
-        cursor = conn.cursor()
-        cursor.execute(sql, (GameStatus.PICKING, GameStatus.INPROGRESS, search_str, search_str))
-        games = cursor.fetchall()
+        data = db.get_games_by_status(GameStatus.PICKING)
+        data += db.get_games_by_status(GameStatus.INPROGRESS)
+        games = []
+        for game in data:
+            if old_player_id_str in game[1] or old_player_id_str in game[2]:
+                games.append(game)
         if not games:
             logger.error(f'Player {old_player} substituted with {new_player}, but no game with that player and '
                          f'Picking or InProgress status, not sure what game to substitute the player!')
@@ -1623,10 +1623,10 @@ def start_bot(db, logger):
                 logger.warning(f'Player {old_player} substituted with {new_player}, but multiple games with that '
                                f'player and Picking or InProgress status, not sure what game to substitute the player! '
                                f'Substituting the player in the last game and hoping for the best!')
-            game_id: int = games[-1][0]
-            team1: str = games[-1][1]
-            team2: str = games[-1][2]
-            status: int = games[-1][3]
+            game_id = games[-1][0]
+            team1 = games[-1][1]
+            team2 = games[-1][2]
+            status = games[-1][4]
             teams = ('', '')
             if old_player_id_str in team1:
                 teams = (team1.replace(old_player_id_str, new_player_id_str), team2)
@@ -1649,7 +1649,7 @@ def start_bot(db, logger):
             team2_ids = [int(i) for i in teams[1].split()]
             if success:
                 if status == GameStatus.INPROGRESS:
-                    team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
+                    team1_win_chance = calculate_win_chance(db, (team1_ids, team2_ids))
                     if team1_win_chance > 0:
                         result_msg = (f'Player subbed, new prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
                                       f'({(1 - team1_win_chance):.1%}).')
@@ -1659,7 +1659,7 @@ def start_bot(db, logger):
                 else:
                     player_ids = [team1_ids[0], team2_ids[0]]
                     player_ids.extend(team1_ids[1:])
-                    best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(conn, player_ids)
+                    best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(db, player_ids)
                     team1_str = '<@!' + '>, <@!'.join([str(i) for i in best_team1_ids]) + '>'
                     team2_str = '<@!' + '>, <@!'.join([str(i) for i in best_team2_ids]) + '>'
                     result_msg = (f'Suggested teams: {team1_str} versus {team2_str} ({best_chance_to_draw:.1%} chance '
@@ -1672,15 +1672,12 @@ def start_bot(db, logger):
         player1, player2 = message.content.replace('`', '').split(' has been swapped with ')
         player1_id_str = str((await query_members(player1)).id)
         player2_id_str = str((await query_members(player2)).id)
-        search_str1 = f'%{player1_id_str}%'
-        search_str2 = f'%{player2_id_str}%'
-        values = (GameStatus.INPROGRESS, search_str1, search_str2, search_str2, search_str1)
-        sql = ''' SELECT id, team1, team2 FROM games 
-                  WHERE status = ? AND 
-                  ((team1 LIKE ? AND team2 LIKE ?) OR (team1 LIKE ? AND team2 LIKE ?))'''
-        cursor = conn.cursor()
-        cursor.execute(sql, values)
-        games = cursor.fetchall()
+        data = db.get_games_by_status(GameStatus.INPROGRESS)
+        games = []
+        for game in data:
+            if ((player1_id_str in game[1] and player2_id_str in game[2])
+                    or (player1_id_str in game[2] and player2_id_str in game[1])):
+                games.append(game)
         if not games:
             logger.error(f'Players swapped, but no game with {player1} and {player2} and InProgress status, not sure '
                          f'what game to swap the players!')
@@ -1711,7 +1708,7 @@ def start_bot(db, logger):
             if success:
                 team1_ids = [int(i) for i in teams[0].split()]
                 team2_ids = [int(i) for i in teams[1].split()]
-                team1_win_chance = calculate_win_chance(conn, (team1_ids, team2_ids))
+                team1_win_chance = calculate_win_chance(db, (team1_ids, team2_ids))
                 if team1_win_chance > 0:
                     result_msg = (f'Player swapped, new prediction: Team 1 ({team1_win_chance:.1%}), Team 2 '
                                   f'({(1 - team1_win_chance):.1%}).')

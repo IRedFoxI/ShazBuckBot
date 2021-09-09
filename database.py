@@ -539,13 +539,13 @@ class DataBase:
         data = cursor.fetchall()
         motds = []
         for motd in data:
-            id: int = motd[0]
+            motd_id: int = motd[0]
             author_id: int = motd[1]
             channel_id: int = motd[2]
             start_time: int = motd[3]
             end_time: int = motd[4]
             message: str = motd[5]
-            motds.append((id, author_id, channel_id, start_time, end_time, message))
+            motds.append((motd_id, author_id, channel_id, start_time, end_time, message))
         return motds
 
     def get_trueskill_rating(self, player_id) -> tuple[int, int, int]:

@@ -143,7 +143,11 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM users WHERE id = ? ''', (user_id,))
-        return tuple(cur.fetchone())
+        data = cur.fetchone()
+        if data:
+            return tuple(data)
+        else:
+            return tuple()
 
     def get_user_data_by_discord_id(self, discord_id, fields) -> tuple:
         """Get user data from database
@@ -155,7 +159,11 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM users WHERE discord_id = ? ''', (discord_id,))
-        return tuple(cur.fetchone())
+        data = cur.fetchone()
+        if data:
+            return tuple(data)
+        else:
+            return tuple()
 
     def get_top5(self) -> list[tuple[str, int, int]]:
         """Returns the top 5
@@ -163,9 +171,9 @@ class DataBase:
         :return: List of Tuples with the data of the top 5 (nick, discord_id and balance)
         """
         sql = ''' SELECT nick, discord_id, balance FROM users ORDER BY balance DESC LIMIT 5 '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql)
-        data = cursor.fetchall()
+        cur = self.conn.cursor()
+        cur.execute(sql)
+        data = cur.fetchall()
         top5 = []
         for user in data:
             nick: str = user[0]
@@ -183,9 +191,9 @@ class DataBase:
                   AS total_sender_amount FROM users, transfers 
                   WHERE (users.id = receiver or users.id = sender) AND sender <> 1 AND receiver <> 1 
                   AND sender <> receiver GROUP BY nick ORDER BY total_sender_amount DESC LIMIT 5 '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql)
-        data = cursor.fetchall()
+        cur = self.conn.cursor()
+        cur.execute(sql)
+        data = cur.fetchall()
         beggars = []
         for user in data:
             nick: str = user[0]
@@ -203,9 +211,9 @@ class DataBase:
                   AS total_sender_amount FROM users, transfers
                   WHERE (users.id = receiver or users.id = sender) AND sender <> 1 AND receiver <> 1 
                   AND sender <> receiver GROUP BY nick ORDER BY total_sender_amount DESC LIMIT 5 '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql)
-        data = cursor.fetchall()
+        cur = self.conn.cursor()
+        cur.execute(sql)
+        data = cur.fetchall()
         beggars = []
         for user in data:
             nick: str = user[0]
@@ -266,7 +274,7 @@ class DataBase:
         :param tuple[str,str,str,int] game: Tuple with the details of the game
         :return: The id of the created game
         """
-        game += (GameStatus.PICKING,)
+        game += (GameStatus.PICKING.value,)
         sql = ''' INSERT INTO games(queue, start_time, team1, team2, bet_window, status)
                   VALUES(?, strftime('%s','now'), ?, ?, ?, ?) '''
         cur = self.conn.cursor()
@@ -339,15 +347,15 @@ class DataBase:
                   CAST (((julianday('now') - julianday(start_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   bet_window FROM games WHERE status = ? '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql, (status, ))
-        data = cursor.fetchall()
+        cur = self.conn.cursor()
+        cur.execute(sql, (status, ))
+        data = cur.fetchall()
         games = []
         for game in data:
             game_id: int = game[0]
             teams: tuple[str, str] = game[1:3]
             queue: str = game[3]
-            status: GameStatus = game[4]
+            status = GameStatus(game[4])
             time_since_start: int = game[5]
             time_since_pick: int = game[6]
             bet_window: int = game[7]
@@ -365,9 +373,20 @@ class DataBase:
                   CAST (((julianday('now') - julianday(start_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   CAST (((julianday('now') - julianday(pick_time, 'unixepoch')) * 24 * 60 * 60) AS INTEGER),
                   bet_window FROM games WHERE id = ? '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql, (game_id,))
-        return tuple(cursor.fetchone())
+        cur = self.conn.cursor()
+        cur.execute(sql, (game_id,))
+        data = cur.fetchone()
+        if data:
+            game_id: int = data[0]
+            teams: tuple[str, str] = data[1:3]
+            queue: str = data[3]
+            status = GameStatus(data[4])
+            time_since_start: int = data[5]
+            time_since_pick: int = data[6]
+            bet_window: int = data[7]
+            return tuple((game_id,) + teams + (queue, status, time_since_start, time_since_pick, bet_window))
+        else:
+            return tuple()
 
     def get_game_data(self, game_id, fields) -> tuple:
         """Get user data from database
@@ -379,7 +398,11 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM games WHERE id = ? ''', (game_id,))
-        return tuple(cur.fetchone())
+        data = cur.fetchone()
+        if data:
+            return tuple(data)
+        else:
+            return tuple()
 
     def create_wager(self, wager) -> int:
         """Create a new wager into the wagers table
@@ -448,14 +471,14 @@ class DataBase:
         sql = ''' SELECT wagers.id, user_id, prediction, amount, nick, discord_id, team1, team2 
                   FROM wagers, users, games 
                   WHERE game_id = ? AND users.id = user_id AND games.id = game_id AND result = ? '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql, (game_id, wager_result))
-        data = cursor.fetchall()
+        cur = self.conn.cursor()
+        cur.execute(sql, (game_id, wager_result))
+        data = cur.fetchall()
         wagers = []
         for wager in data:
             wager_id: int = wager[0]
             user_id: int = wager[1]
-            prediction: GameStatus = wager[2]
+            prediction = GameStatus(wager[2])
             amount: int = wager[3]
             nick: str = wager[4]
             discord_id: int = wager[5]
@@ -472,11 +495,13 @@ class DataBase:
         """
         sql = ''' SELECT id, prediction FROM wagers WHERE user_id = ? AND game_id = ? AND result = ? '''
         values = (user_id, game_id, WagerResult.INPROGRESS)
-        cursor = self.conn.cursor()
-        cursor.execute(sql, values)
-        data = cursor.fetchone()
+        cur = self.conn.cursor()
+        cur.execute(sql, values)
+        data = cur.fetchone()
         if data:
             return tuple(data)
+        else:
+            return tuple()
 
     def create_motd(self, motd) -> int:
         """Create a new motd into the motds table
@@ -517,9 +542,13 @@ class DataBase:
         else:
             sql = ''' SELECT discord_id, channel_id, start_time, end_time, message FROM motds 
                       WHERE id = ? AND channel_id = ? AND end_time > strftime('%s','now') '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql, (motd_id, channel_id))
-        return tuple(cursor.fetchone())
+        cur = self.conn.cursor()
+        cur.execute(sql, (motd_id, channel_id))
+        data = cur.fetchone()
+        if data:
+            return tuple(data)
+        else:
+            return tuple()
 
     def get_motds(self, channel_id, *, general=False) -> list[tuple[int, int, int, int, int, str]]:
         """Get the currently active MOTDs
@@ -534,9 +563,9 @@ class DataBase:
         else:
             sql = ''' SELECT id, discord_id, channel_id, start_time, end_time, message FROM motds 
                       WHERE channel_id = ? AND end_time > strftime('%s','now') '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql, (channel_id,))
-        data = cursor.fetchall()
+        cur = self.conn.cursor()
+        cur.execute(sql, (channel_id,))
+        data = cur.fetchall()
         motds = []
         for motd in data:
             motd_id: int = motd[0]
@@ -556,9 +585,13 @@ class DataBase:
         """
         sql = ''' SELECT mu, sigma, ROW_NUMBER() OVER(ORDER BY game_id ASC) AS game_nr FROM trueskills 
                   WHERE discord_id = ? ORDER BY game_id DESC LIMIT 1 '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql, (player_id,))
-        return tuple(cursor.fetchone())
+        cur = self.conn.cursor()
+        cur.execute(sql, (player_id,))
+        data = cur.fetchone()
+        if data:
+            return tuple(data)
+        else:
+            return tuple()
 
     def new_trueskill_rating(self, player_id, game_id, rating) -> None:
         """
@@ -570,6 +603,6 @@ class DataBase:
         """
         trueskill_update = (player_id, game_id, rating.mu, rating.sigma, expose(rating))
         sql = ''' INSERT INTO trueskills(discord_id, game_id, mu, sigma, trueskill) VALUES(?, ?, ?, ?, ?) '''
-        cursor = self.conn.cursor()
-        cursor.execute(sql, trueskill_update)
+        cur = self.conn.cursor()
+        cur.execute(sql, trueskill_update)
         self.conn.commit()

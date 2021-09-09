@@ -813,7 +813,7 @@ def start_bot(db, logger):
                     capt_nicks = [await get_nick_from_discord_id(did) for did in capt_ids_strs]
                 else:
                     capt_nicks = capt_ids_strs
-                old_status: GameStatus = game[4]
+                old_status = game[4]
                 new_status = None
                 if result in ['1', 'Red', 'red', 'Team1', 'team1', capt_nicks[0]]:
                     new_status = GameStatus.TEAM1
@@ -1199,7 +1199,7 @@ def start_bot(db, logger):
             else:
                 logger.error(f'Could not find discord id for player {nick}')
         team_id_strs = tuple(player_id_strs)
-        game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
+        game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW.to_seconds,)
         game_id = db.create_game(game)
         logger.info(f'Game {game_id} created in the {queue} queue: {" ".join(player_nicks)}')
         best_team1_ids, best_team2_ids, best_chance_to_draw = suggest_even_teams(db, player_ids)
@@ -1236,7 +1236,7 @@ def start_bot(db, logger):
                 games.append(game)
         if not games:
             logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status in that queue!')
-            game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
+            game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW.to_seconds,)
             game_id = db.create_game(game)
             game_status = GameStatus.PICKING
             logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
@@ -1280,7 +1280,7 @@ def start_bot(db, logger):
             if game_id == 0:
                 logger.error(f'Game picked in {queue} queue, but no game with Picking or InProgress status and '
                              f'captains {" and ".join(capt_nicks)} in that queue!')
-                game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW,)
+                game = (queue,) + team_id_strs + (DEFAULT_BET_WINDOW.to_seconds,)
                 game_id = db.create_game(game)
                 game_status = GameStatus.PICKING
                 logger.info(f'Game {game_id} created in the {queue} queue: {" versus ".join(team_strs)}')
@@ -1717,6 +1717,59 @@ def start_bot(db, logger):
                 await message.channel.send(result_msg)
         await message.add_reaction(REACTIONS[success])
 
+    @bot.group(name='test', help='Test the bots functioning', pass_context=True, invoke_without_command=True)
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_test(ctx):
+        if ctx.invoked_subcommand is None:
+            await ctx.message.add_reaction(REACTIONS[False])
+
+    @cmd_test.command(name='win', help='Simulate win result message')
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_test_win(ctx):
+        title = "Game 'NA' finished"
+        description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+        await ctx.message.add_reaction(REACTIONS[True])
+
+    @cmd_test.command(name='tie', help='Simulate tie result message')
+    @in_channel(BOT_CHANNEL_ID)
+    @is_admin()
+    async def cmd_test_tie(ctx):
+        title = "Game 'NA' finished"
+        description = '**Tie game**\n**Duration:** 53 Minutes'
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+        await ctx.message.add_reaction(REACTIONS[True])
+
+    @cmd_test.command(name='pick', help='Simulate picked message')
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_test_picked(ctx):
+        title = "Game 'NA' teams picked"
+        bot_nick, = db.get_user_data_by_discord_id(DISCORD_ID, ('nick',))
+        description = ('**Teams**:\n'
+                       'RedFox: RR, Swordfish, TylerMarket, IceHawk\n'
+                       f'{bot_nick}: Matin, cl0wn, smokin, lastofspades\n'
+                       '\n'
+                       '**Maps**: Elite, Exhumed')
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+        await ctx.message.add_reaction(REACTIONS[True])
+
+    @cmd_test.command(name='begin', help='Simulate begin message')
+    @is_admin()
+    @in_channel(BOT_CHANNEL_ID)
+    async def cmd_test_begin(ctx):
+        title = "Game 'NA' has begun"
+        description = (f'**Captains: <@{REDFOX_DISCORD_ID}> & <@{DISCORD_ID}>**\n'
+                       'RR, Swordfish, TylerMarket, IceHawk, Matin, cl0wn, smokin, lastofspades')
+        embed_msg = discord.Embed(description=description, color=0x00ff00)
+        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+        await ctx.message.add_reaction(REACTIONS[True])
+
     @bot.event
     async def on_message(message):
         # Log messages for debugging purposes
@@ -1732,7 +1785,8 @@ def start_bot(db, logger):
                     for line in embed.description.split('\n'):
                         logger.debug(f'\t\t{line}')
         # Parse BullyBot's messages for game info
-        if message.author.id == BULLYBOT_DISCORD_ID and message.channel.id == PUG_CHANNEL_ID:
+        if ((message.author.id == BULLYBOT_DISCORD_ID or message.author.id == DISCORD_ID)
+                and message.channel.id == PUG_CHANNEL_ID):
             if 'Game' in message.content:
                 if 'begun' in message.content:
                     await game_begun(message)

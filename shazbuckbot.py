@@ -1739,7 +1739,7 @@ def start_bot(db, logger):
     @is_admin()
     async def cmd_test_tie(ctx):
         title = "Game 'NA' finished"
-        description = '**Tie game**\n**Duration:** 53 Minutes'
+        description = '**Tie game**\n**Duration:** 5 Minutes'
         embed_msg = discord.Embed(description=description, color=0x00ff00)
         await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
         await ctx.message.add_reaction(REACTIONS[True])

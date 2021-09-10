@@ -278,7 +278,7 @@ def start_bot(db, ts, logger):
         discord_id = ctx.author.id
         nick = ctx.author.name
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             user_id = db.create_user((discord_id, nick, 0, 0))
             if user_id == 0 or db.create_transfer((bot_user_id, user_id, INIT_BAL)) == 0:
                 await ctx.author.create_dm()
@@ -313,7 +313,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('nick', 'balance'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -328,7 +328,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick', 'balance'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -345,7 +345,7 @@ def start_bot(db, ts, logger):
             else:
                 discord_id = receiver.id
                 data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick', 'balance'))
-                if data is None:
+                if not data:
                     msg = f'Hi {nick}, {receiver} does not have an account yet!'
                     await send_dm(sender_id, msg)
                 else:
@@ -378,7 +378,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick', 'balance'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -498,7 +498,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'mute_dm'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -516,7 +516,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -573,7 +573,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -608,7 +608,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -643,7 +643,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -792,7 +792,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -970,7 +970,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:
@@ -997,7 +997,7 @@ def start_bot(db, ts, logger):
         success = False
         discord_id = ctx.author.id
         data = db.get_user_data_by_discord_id(discord_id, ('id', 'nick'))
-        if data is None:
+        if not data:
             await ctx.author.create_dm()
             await ctx.author.dm_channel.send(f'Hi {ctx.author.name}, you do not have an account yet!')
         else:

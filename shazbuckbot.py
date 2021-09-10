@@ -6,7 +6,6 @@ import atexit
 import os
 import re
 import time
-# import typing
 from typing import List, Tuple, Optional
 
 from datetime import datetime
@@ -16,19 +15,18 @@ from math import sqrt, floor
 import unicodedata
 
 import git
-import requests
 import logging
-from logging import Logger
 
 import discord
 from aiohttp import ClientConnectorError
 from discord.ext import commands
 
+from trueskill import Rating, rate, quality, backends, BETA, global_env
+
 from helper_classes import GameStatus, WagerResult, TimeDuration
 from config import load_config
 from database import DataBase
-
-from trueskill import Rating, rate, quality, backends, BETA, global_env
+from twitch_streams import TwitchStreams
 
 backends.choose_backend('scipy')
 
@@ -55,7 +53,7 @@ MAX_RETRY_COUNT = 10
 RETRY_WAIT = 10  # Seconds
 TWITCH_GAME_ID = "517069"  # midair community edition
 TWITCH_CLIENT_ID: str = config['twitch_client_id']
-TWITCH_AUTH_ACCESS_TOKEN: str = config['twitch_auth_access_token']
+TWITCH_CLIENT_SECRET: str = config['twitch_client_secret']
 MIN_NUM_GAMES_FOR_TS = 60
 DEFAULT_BET_WINDOW = TimeDuration.from_string(config['default_bet_window'])
 DEFAULT_MOTD_TIME = TimeDuration.from_string(config['default_motd_time'])
@@ -132,11 +130,12 @@ def calculate_win_chance(db, teams_ids) -> float:
         return 0
 
 
-def start_bot(db, logger):
+def start_bot(db, ts, logger):
     """Start the discord bot
 
-    :param DataBase db:
-    :param Logger logger:
+    :param DataBase db: Database connection
+    :param TwitchStreams ts: Twitch connection
+    :param Logger logger: Logger connection
     :return:
     """
     bot = commands.Bot(command_prefix='!', loop=asyncio.new_event_loop(),
@@ -1080,34 +1079,29 @@ def start_bot(db, logger):
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_streams(ctx):
         success = False
-        headers = {
-            'Content-type': 'application/json',
-            'Authorization': f'Bearer {TWITCH_AUTH_ACCESS_TOKEN}',
-            'Client-Id': f'{TWITCH_CLIENT_ID}',
-        }
-        response = requests.get('https://api.twitch.tv/helix/streams?first=5&game_id=' + TWITCH_GAME_ID,
-                                headers=headers)
-        time.sleep(2)
-        streams = response.json()
-        if streams['data']:
-            embed: discord.Embed = discord.Embed(title="", description="", color=discord.Color(8192255))
-            user_names = []
-            total_viewer_count = 0
-            for stream in streams['data']:
-                stream_name = (f"{str(stream['viewer_count'])}<:z_1:771957560005099530> {str(stream['user_name'])} - "
-                               f"{str(stream['title'])}")
-                stream_link = "https://www.twitch.tv/" + str(stream['user_name'])
-                stream_url = "[twitch.tv/" + str(stream['user_name']) + "](" + stream_link + ")"
-                embed.add_field(name=stream_name, value=stream_url, inline=False)
-                total_viewer_count += int(stream['viewer_count'])
-                user_names.append(str(stream['user_name']))
-            if len(user_names) > 1:
-                multi_stream_name = f'{str(total_viewer_count)}<:z_1:771957560005099530> Multi stream'
-                multi_stream_link = f'https://multistre.am/{"/".join(user_names)}'
-                multi_stream_url = "[multistre.am/" + "/".join(user_names) + "](" + multi_stream_link + ")"
-                embed.add_field(name=multi_stream_name, value=multi_stream_url, inline=False)
-            await ctx.channel.send(embed=embed)
-            success = True
+        try:
+            streams = ts.get_streams()
+            if 'data' in streams and streams['data']:
+                embed: discord.Embed = discord.Embed(title="", description="", color=discord.Color(8192255))
+                user_names = []
+                total_viewer_count = 0
+                for stream in streams['data']:
+                    stream_name = (f"{str(stream['viewer_count'])}<:z_1:771957560005099530> {str(stream['user_name'])}"
+                                   f" - {str(stream['title'])}")
+                    stream_link = "https://www.twitch.tv/" + str(stream['user_name'])
+                    stream_url = "[twitch.tv/" + str(stream['user_name']) + "](" + stream_link + ")"
+                    embed.add_field(name=stream_name, value=stream_url, inline=False)
+                    total_viewer_count += int(stream['viewer_count'])
+                    user_names.append(str(stream['user_name']))
+                if len(user_names) > 1:
+                    multi_stream_name = f'{str(total_viewer_count)}<:z_1:771957560005099530> Multi stream'
+                    multi_stream_link = f'https://multistre.am/{"/".join(user_names)}'
+                    multi_stream_url = "[multistre.am/" + "/".join(user_names) + "](" + multi_stream_link + ")"
+                    embed.add_field(name=multi_stream_name, value=multi_stream_url, inline=False)
+                await ctx.channel.send(embed=embed)
+                success = True
+        except ConnectionError as error:
+            logger.error(error)
         await ctx.message.add_reaction(REACTIONS[success])
 
     @bot.group(name='motd', help='Message of the Day commands', pass_context=True, invoke_without_command=True)
@@ -1846,11 +1840,13 @@ def main():
 
     # Connect to database and initialise
     db = DataBase(DATABASE, DISCORD_ID, DEFAULT_BET_WINDOW)
+    # Connect to twitch
+    ts = TwitchStreams(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
     # Attempt to connect to Discord server
     retry_count = 0
     while retry_count < MAX_RETRY_COUNT:
         try:
-            start_bot(db, logger)
+            start_bot(db, ts, logger)
             break
         except ClientConnectorError:
             retry_count += 1

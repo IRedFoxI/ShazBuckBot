@@ -5,6 +5,8 @@ import asyncio
 import atexit
 import os
 import re
+import socket
+import sys
 import time
 from typing import List, Tuple, Optional
 
@@ -1837,12 +1839,22 @@ def main():
     logging.basicConfig(format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
                         level=level)
     logger = logging.getLogger(__name__)
-
+    # Prevent a second instance from running
+    lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        lock_socket.bind(f'\0{__file__}')
+        logger.info('Acquired lock on socket, no other instance running.')
+    except socket.error:
+        logger.error('Lock on socket exists, another instance is running. Aborting.')
+        sys.exit()
     # Connect to database and initialise
     db = DataBase(DATABASE, DISCORD_ID, DEFAULT_BET_WINDOW)
+    logger.info('Database opened.')
     # Connect to twitch
     ts = TwitchStreams(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+    logger.info('Twitch connection initialized.')
     # Attempt to connect to Discord server
+    logger.info('Connecting to Discord.')
     retry_count = 0
     while retry_count < MAX_RETRY_COUNT:
         try:

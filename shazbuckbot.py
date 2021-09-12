@@ -1842,8 +1842,8 @@ def main():
     # Prevent a second instance from running
     lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     try:
-        lock_socket.bind(f'\0{__file__}')
-        logger.info('Acquired lock on socket, no other instance running.')
+        lock_socket.bind('\0shazbuckbot')
+        logger.info(f'Acquired lock on socket \\0{__file__}, no other instance running.')
     except socket.error:
         logger.error('Lock on socket exists, another instance is running. Aborting.')
         sys.exit()

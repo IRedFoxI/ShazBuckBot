@@ -1836,7 +1836,7 @@ def main():
         raise ValueError(
             f"log level given: {options.log}"
             f" -- must be one of: {' | '.join(levels.keys())}")
-    logging.basicConfig(format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
+    logging.basicConfig(filename='shazbuckbot.log', format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
                         level=level)
     logger = logging.getLogger(__name__)
     # Prevent a second instance from running

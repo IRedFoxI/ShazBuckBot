@@ -38,7 +38,7 @@ class TwitchStreams:
 
         :return: A dictionary with the details of the found streams
         """
-        if not self.validate_token():
+        if not self.twitch_access_token or not self.validate_token():
             try:
                 self.twitch_access_token = self.get_token()
             except PermissionError as error:

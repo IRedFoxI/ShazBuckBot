@@ -5,9 +5,9 @@ import sqlite3
 
 from trueskill import Rating, expose
 
-from helper_classes import GameStatus, WagerResult, TimeDuration
+from helper_classes import GameStatus, WagerResult, TimeDuration, TransferReason
 
-DATABASE_VERSION = 1
+DATABASE_VERSION = 2
 
 
 class DataBase:
@@ -34,7 +34,9 @@ class DataBase:
         if data:
             db_version = data[0]
         if db_version < DATABASE_VERSION:
-            self.update_database(db_version, default_bet_window)
+            db_version = self.update_database(db_version, default_bet_window)
+            if db_version != DATABASE_VERSION:
+                raise Exception('Database upgrade failed')
 
         cur = self.conn.cursor()
         cur.execute(''' SELECT id FROM users WHERE discord_id = ? ''', (bot_discord_id,))
@@ -100,7 +102,7 @@ class DataBase:
             );
         """)
 
-    def update_database(self, db_version, default_bet_window) -> None:
+    def update_database(self, db_version, default_bet_window) -> int:
         """Update the database to current version
 
         :param int db_version: Version of the database
@@ -119,6 +121,14 @@ class DataBase:
                 self.conn.execute("UPDATE games SET bet_window = bet_window * 60")
             self.conn.execute("PRAGMA user_version = 1")
             self.conn.commit()
+            db_version = 1
+        if db_version < 2:
+            self.conn.execute(""" ALTER TABLE transfers ADD COLUMN reason INTEGER """)
+            self.conn.execute(""" ALTER TABLE transfers ADD COLUMN reason_id INTEGER """)
+            self.conn.execute("PRAGMA user_version = 2")
+            self.conn.commit()
+            db_version = 2
+        return db_version
 
     def create_user(self, user) -> int:
         """Create a new user into the users table
@@ -253,12 +263,12 @@ class DataBase:
     def create_transfer(self, transfer) -> int:
         """Create a new transfer into the transfers table and update the balances
     
-        :param tuple(int,int,int) transfer: Tuple of the user_id of the sender, user_id of the receiver and the amount
-            to be transferred
+        :param tuple[int, int, int, TransferReason, int] transfer: Tuple of the user_id of the sender, user_id of the
+            receiver and the amount to be transferred
         :return: The id of the transfer or 0 if an error occurred
         """
-        sql = ''' INSERT INTO transfers(sender, receiver, amount, transfer_time)
-                  VALUES(?, ?, ?, strftime('%s','now')) '''
+        sql = ''' INSERT INTO transfers(sender, receiver, amount, transfer_time, reason, reason_id)
+                  VALUES(?, ?, ?, strftime('%s','now'), ?, ?) '''
         cur = self.conn.cursor()
         cur.execute(sql, transfer)
         self.conn.commit()

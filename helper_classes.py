@@ -23,6 +23,14 @@ class WagerResult(IntEnum):
     CANCELLEDONESIDED = auto()
 
 
+class TransferReason(IntEnum):
+    GIFT = auto()
+    PLACEBET = auto()
+    CANCELBET = auto()
+    WINBET = auto()
+    REVERTWIN = auto()
+
+
 class TimeDuration:
     SECONDS_PER_UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 

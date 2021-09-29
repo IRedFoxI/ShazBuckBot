@@ -807,7 +807,7 @@ def start_bot(db, ts, logger):
                        f'Team1, Team2, Tied or Cancelled.')
                 await send_dm(user_id, msg)
             else:
-                team_id_strs: tuple[str, str] = game[1:3]
+                team_id_strs: Tuple[str, str] = game[1:3]
                 capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
                 queue: str = game[3]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
@@ -1836,8 +1836,8 @@ def main():
         raise ValueError(
             f"log level given: {options.log}"
             f" -- must be one of: {' | '.join(levels.keys())}")
-    logging.basicConfig(filename='shazbuckbot.log', format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
-                        level=level)
+    logging.basicConfig(filename='shazbuckbot.log', format='%(asctime)s %(levelname)-8s: %(message)s',
+                        datefmt='%m/%d/%Y %I:%M:%S %p', level=level)
     logger = logging.getLogger(__name__)
     # Prevent a second instance from running
     lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)

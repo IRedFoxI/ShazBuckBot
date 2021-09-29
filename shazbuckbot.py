@@ -462,8 +462,9 @@ def start_bot(db, ts, logger):
                                    f'use 1, 2, Red or Blue, check the id or wait until the teams have been picked.')
                         await send_dm(user_id, msg)
                     elif time_since_pick > bet_window:
-                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} seconds ago. '
-                               f'Bets had to be made within {bet_window} seconds after picking was completed.')
+                        msg = (f'Hi {nick}, too late! The game has started {TimeDuration.from_seconds(time_since_pick)}'
+                               f' ago. Bets had to be made within {TimeDuration.from_seconds(bet_window)} after '
+                               f'picking was completed.')
                         await send_dm(user_id, msg)
                     else:
                         prev_wager = db.get_current_wager(user_id, game_id)
@@ -558,8 +559,9 @@ def start_bot(db, ts, logger):
                                      f'{capt_nicks[1]}\n')
                     elif game_status == GameStatus.INPROGRESS:
                         if time_since_pick <= bet_window:
-                            show_str += (f'{queue}: Game {game_id} ({bet_window - time_since_pick} seconds left to '
-                                         f'bet): {capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                            time_str = TimeDuration.from_seconds(bet_window - time_since_pick)
+                            show_str += (f'{queue}: Game {game_id} ({time_str} left to bet): '
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
                             show_str += (f'{queue}: Game {game_id} (Betting closed): '

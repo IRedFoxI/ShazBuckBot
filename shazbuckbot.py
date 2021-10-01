@@ -59,6 +59,7 @@ TWITCH_CLIENT_SECRET: str = config['twitch_client_secret']
 MIN_NUM_GAMES_FOR_TS = 60
 DEFAULT_BET_WINDOW = TimeDuration.from_string(config['default_bet_window'])
 DEFAULT_MOTD_TIME = TimeDuration.from_string(config['default_motd_time'])
+DEBUG = 'DEBUG' in os.environ and os.environ['DEBUG'] == '1'
 
 
 def caseless_equal(left, right):
@@ -1717,54 +1718,66 @@ def start_bot(db, ts, logger):
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_test(ctx):
-        if ctx.invoked_subcommand is None:
+        if ctx.invoked_subcommand is None or DEBUG == False:
             await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='win', help='Simulate win result message')
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_test_win(ctx):
-        title = "Game 'NA' finished"
-        description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' finished"
+            description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='tie', help='Simulate tie result message')
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_test_tie(ctx):
-        title = "Game 'NA' finished"
-        description = '**Tie game**\n**Duration:** 5 Minutes'
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' finished"
+            description = '**Tie game**\n**Duration:** 5 Minutes'
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='pick', help='Simulate picked message')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_test_picked(ctx):
-        title = "Game 'NA' teams picked"
-        bot_nick, = db.get_user_data_by_discord_id(DISCORD_ID, ('nick',))
-        description = ('**Teams**:\n'
-                       'RedFox: RR, Swordfish, TylerMarket, IceHawk\n'
-                       f'{bot_nick}: Matin, cl0wn, smokin, lastofspades\n'
-                       '\n'
-                       '**Maps**: Elite, Exhumed')
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' teams picked"
+            bot_nick, = db.get_user_data_by_discord_id(DISCORD_ID, ('nick',))
+            description = ('**Teams**:\n'
+                           'RedFox: RR, Swordfish, TylerMarket, IceHawk\n'
+                           f'{bot_nick}: Matin, cl0wn, smokin, lastofspades\n'
+                           '\n'
+                           '**Maps**: Elite, Exhumed')
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='begin', help='Simulate begin message')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_test_begin(ctx):
-        title = "Game 'NA' has begun"
-        description = (f'**Captains: <@{REDFOX_DISCORD_ID}> & <@{DISCORD_ID}>**\n'
-                       'RR, Swordfish, TylerMarket, IceHawk, Matin, cl0wn, smokin, lastofspades')
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' has begun"
+            description = (f'**Captains: <@{REDFOX_DISCORD_ID}> & <@{DISCORD_ID}>**\n'
+                           'RR, Swordfish, TylerMarket, IceHawk, Matin, cl0wn, smokin, lastofspades')
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @bot.event
     async def on_message(message):
@@ -1781,7 +1794,7 @@ def start_bot(db, ts, logger):
                     for line in embed.description.split('\n'):
                         logger.debug(f'\t\t{line}')
         # Parse BullyBot's messages for game info
-        if ((message.author.id == BULLYBOT_DISCORD_ID or message.author.id == DISCORD_ID)
+        if ((message.author.id == BULLYBOT_DISCORD_ID or (DEBUG and message.author.id == DISCORD_ID))
                 and message.channel.id == PUG_CHANNEL_ID):
             if 'Game' in message.content:
                 if 'begun' in message.content:

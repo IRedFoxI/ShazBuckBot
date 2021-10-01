@@ -561,11 +561,11 @@ def start_bot(db, ts, logger):
                     elif game_status == GameStatus.INPROGRESS:
                         if time_since_pick <= bet_window:
                             time_str = TimeDuration.from_seconds(bet_window - time_since_pick)
-                            show_str += (f'{queue}: Game {game_id} ({time_str} left to bet): '
+                            show_str += (f'Game {game_id} ({time_str} left to bet): {queue} - '
                                          f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
-                            show_str += (f'{queue}: Game {game_id} (Betting closed): '
+                            show_str += (f'Game {game_id} (Betting closed): {queue} - '
                                          f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
             success = True

@@ -2,6 +2,7 @@
 """database handling for shazbuckbot"""
 
 import sqlite3
+from typing import List, Tuple
 
 from trueskill import Rating, expose
 
@@ -165,7 +166,7 @@ class DataBase:
         else:
             return tuple()
 
-    def get_top5(self) -> list[tuple[str, int, int]]:
+    def get_top5(self) -> List[Tuple[str, int, int]]:
         """Returns the top 5
 
         :return: List of Tuples with the data of the top 5 (nick, discord_id and balance)
@@ -182,7 +183,7 @@ class DataBase:
             top5.append((nick, discord_id, balance))
         return top5
 
-    def get_beggars(self) -> list[tuple[str, int, int]]:
+    def get_beggars(self) -> List[Tuple[str, int, int]]:
         """Returns the beggars
 
         :return: List of Tuples with the data of the beggars (nick, discord_id and balance)
@@ -202,7 +203,7 @@ class DataBase:
             beggars.append((nick, discord_id, amount))
         return beggars
 
-    def get_philanthropists(self) -> list[tuple[str, int, int]]:
+    def get_philanthropists(self) -> List[Tuple[str, int, int]]:
         """Returns the philanthropists
 
         :return: List of Tuples with the data of the philanthropists (nick, discord_id and balance)
@@ -336,7 +337,7 @@ class DataBase:
         cur.execute(sql, values)
         self.conn.commit()
 
-    def get_games_by_status(self, status) -> list[tuple[int, str, str, str, GameStatus, int, int, int]]:
+    def get_games_by_status(self, status) -> List[Tuple[int, str, str, str, GameStatus, int, int, int]]:
         """Provide data on the currently running games
 
         :param GameStatus status: The status of the games to search for
@@ -353,7 +354,7 @@ class DataBase:
         games = []
         for game in data:
             game_id: int = game[0]
-            teams: tuple[str, str] = game[1:3]
+            teams: Tuple[str, str] = game[1:3]
             queue: str = game[3]
             status = GameStatus(game[4])
             time_since_start: int = game[5]
@@ -362,7 +363,7 @@ class DataBase:
             games.append((game_id,) + teams + (queue, status, time_since_start, time_since_pick, bet_window))
         return games
 
-    def get_game_by_id(self, game_id) -> tuple[int, str, str, str, GameStatus, int, int, int]:
+    def get_game_by_id(self, game_id) -> Tuple[int, str, str, str, GameStatus, int, int, int]:
         """Provide data on a game
 
         :param int game_id: The id of the game
@@ -378,7 +379,7 @@ class DataBase:
         data = cur.fetchone()
         if data:
             game_id: int = data[0]
-            teams: tuple[str, str] = data[1:3]
+            teams: Tuple[str, str] = data[1:3]
             queue: str = data[3]
             status = GameStatus(data[4])
             time_since_start: int = data[5]
@@ -460,7 +461,7 @@ class DataBase:
         cur.execute(sql, values)
         self.conn.commit()
 
-    def get_wagers_from_game_id(self, game_id, wager_result) -> list[tuple[int, int, GameStatus, int, str, int, str,
+    def get_wagers_from_game_id(self, game_id, wager_result) -> List[Tuple[int, int, GameStatus, int, str, int, str,
                                                                            str]]:
         """Return all the data of the wagers placed on a certain game
         
@@ -482,11 +483,11 @@ class DataBase:
             amount: int = wager[3]
             nick: str = wager[4]
             discord_id: int = wager[5]
-            teams: tuple[str, str] = wager[6:8]
+            teams: Tuple[str, str] = wager[6:8]
             wagers.append((wager_id, user_id, prediction, amount, nick, discord_id) + teams)
         return wagers
 
-    def get_current_wager(self, user_id, game_id) -> tuple[int, GameStatus]:
+    def get_current_wager(self, user_id, game_id) -> Tuple[int, GameStatus]:
         """Return all the data of the wagers placed on a certain game
 
         :param int user_id: User id of the person placing the bet
@@ -528,7 +529,7 @@ class DataBase:
         cur.execute(sql, (motd_id,))
         self.conn.commit()
 
-    def get_motd(self, channel_id, motd_id, *, general=False) -> tuple[int, int, int, int, str]:
+    def get_motd(self, channel_id, motd_id, *, general=False) -> Tuple[int, int, int, int, str]:
         """Get the currently active MOTDs
 
         :param motd_id: The id of the MOTD
@@ -550,7 +551,7 @@ class DataBase:
         else:
             return tuple()
 
-    def get_motds(self, channel_id, *, general=False) -> list[tuple[int, int, int, int, int, str]]:
+    def get_motds(self, channel_id, *, general=False) -> List[Tuple[int, int, int, int, int, str]]:
         """Get the currently active MOTDs
 
         :param general: If True return the general MOTDs as well as the channel specific ones
@@ -577,7 +578,7 @@ class DataBase:
             motds.append((motd_id, author_id, channel_id, start_time, end_time, message))
         return motds
 
-    def get_trueskill_rating(self, player_id) -> tuple[int, int, int]:
+    def get_trueskill_rating(self, player_id) -> Tuple[int, int, int]:
         """Return the trueskill rating of a player
 
         :param int player_id: Discord id of the player

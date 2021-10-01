@@ -463,8 +463,9 @@ def start_bot(db, ts, logger):
                                    f'use 1, 2, Red or Blue, check the id or wait until the teams have been picked.')
                         await send_dm(user_id, msg)
                     elif time_since_pick > bet_window:
-                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} seconds ago. '
-                               f'Bets had to be made within {bet_window} seconds after picking was completed.')
+                        msg = (f'Hi {nick}, too late! The game has started {TimeDuration.from_seconds(time_since_pick)}'
+                               f' ago. Bets had to be made within {TimeDuration.from_seconds(bet_window)} after '
+                               f'picking was completed.')
                         await send_dm(user_id, msg)
                     else:
                         prev_wager = db.get_current_wager(user_id, game_id)
@@ -559,8 +560,9 @@ def start_bot(db, ts, logger):
                                      f'{capt_nicks[1]}\n')
                     elif game_status == GameStatus.INPROGRESS:
                         if time_since_pick <= bet_window:
-                            show_str += (f'{queue}: Game {game_id} ({bet_window - time_since_pick} seconds left to '
-                                         f'bet): {capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                            time_str = TimeDuration.from_seconds(bet_window - time_since_pick)
+                            show_str += (f'{queue}: Game {game_id} ({time_str} left to bet): '
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
                             show_str += (f'{queue}: Game {game_id} (Betting closed): '
@@ -808,7 +810,7 @@ def start_bot(db, ts, logger):
                        f'Team1, Team2, Tied or Cancelled.')
                 await send_dm(user_id, msg)
             else:
-                team_id_strs: tuple[str, str] = game[1:3]
+                team_id_strs: Tuple[str, str] = game[1:3]
                 capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
                 queue: str = game[3]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
@@ -1849,8 +1851,8 @@ def main():
         raise ValueError(
             f"log level given: {options.log}"
             f" -- must be one of: {' | '.join(levels.keys())}")
-    logging.basicConfig(filename='shazbuckbot.log', format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
-                        level=level)
+    logging.basicConfig(filename='shazbuckbot.log', format='%(asctime)s %(levelname)-8s: %(message)s',
+                        datefmt='%m/%d/%Y %I:%M:%S %p', level=level)
     logger = logging.getLogger(__name__)
     # Prevent a second instance from running
     lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)

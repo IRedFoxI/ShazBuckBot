@@ -248,13 +248,13 @@ def start_bot(db, ts, logger):
         :param str reason: The reason of the cancellation to send to the users in a DM
         """
         wagers = db.get_wagers_from_game_id(game_id, WagerResult.INPROGRESS)
+        teams = wagers[0][6:8]
+        captains = [await get_nick_from_discord_id(team.split()[0]) for team in teams]
         for wager in wagers:
             wager_id = wager[0]
             user_id = wager[1]
-            amount = wager[2]
+            amount = wager[3]
             nick = wager[4]
-            teams = wager[6:8]
-            captains = [team.split(':')[0] for team in teams]
             transfer = (bot_user_id, user_id, amount)
             db.create_transfer(transfer)
             db.wager_result(wager_id, WagerResult.CANCELLED)
@@ -1720,7 +1720,7 @@ def start_bot(db, ts, logger):
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_test(ctx):
-        if ctx.invoked_subcommand is None or DEBUG == False:
+        if ctx.invoked_subcommand is None or not DEBUG:
             await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='win', help='Simulate win result message')

@@ -555,7 +555,7 @@ def start_bot(db, ts, logger):
                         amount = wager[3]
                         total_amounts[prediction] += amount
                     if game_status == GameStatus.PICKING:
-                        show_str += (f'{queue}: Game {game_id} (Picking): '
+                        show_str += (f'Game {game_id} (Picking): {queue} - '
                                      f'{capt_nicks[0]} vs '
                                      f'{capt_nicks[1]}\n')
                     elif game_status == GameStatus.INPROGRESS:

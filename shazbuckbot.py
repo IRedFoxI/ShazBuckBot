@@ -59,6 +59,7 @@ TWITCH_CLIENT_SECRET: str = config['twitch_client_secret']
 MIN_NUM_GAMES_FOR_TS = 60
 DEFAULT_BET_WINDOW = TimeDuration.from_string(config['default_bet_window'])
 DEFAULT_MOTD_TIME = TimeDuration.from_string(config['default_motd_time'])
+DEBUG = 'DEBUG' in os.environ and os.environ['DEBUG'] == '1'
 
 
 def caseless_equal(left, right):
@@ -247,13 +248,13 @@ def start_bot(db, ts, logger):
         :param str reason: The reason of the cancellation to send to the users in a DM
         """
         wagers = db.get_wagers_from_game_id(game_id, WagerResult.INPROGRESS)
+        teams = wagers[0][6:8]
+        captains = [await get_nick_from_discord_id(team.split()[0]) for team in teams]
         for wager in wagers:
             wager_id = wager[0]
             user_id = wager[1]
-            amount = wager[2]
+            amount = wager[3]
             nick = wager[4]
-            teams = wager[6:8]
-            captains = [team.split(':')[0] for team in teams]
             transfer = (bot_user_id, user_id, amount)
             db.create_transfer(transfer)
             db.wager_result(wager_id, WagerResult.CANCELLED)
@@ -462,8 +463,9 @@ def start_bot(db, ts, logger):
                                    f'use 1, 2, Red or Blue, check the id or wait until the teams have been picked.')
                         await send_dm(user_id, msg)
                     elif time_since_pick > bet_window:
-                        msg = (f'Hi {nick}, too late! The game has started {time_since_pick} seconds ago. '
-                               f'Bets had to be made within {bet_window} seconds after picking was completed.')
+                        msg = (f'Hi {nick}, too late! The game has started {TimeDuration.from_seconds(time_since_pick)}'
+                               f' ago. Bets had to be made within {TimeDuration.from_seconds(bet_window)} after '
+                               f'picking was completed.')
                         await send_dm(user_id, msg)
                     else:
                         prev_wager = db.get_current_wager(user_id, game_id)
@@ -553,16 +555,17 @@ def start_bot(db, ts, logger):
                         amount = wager[3]
                         total_amounts[prediction] += amount
                     if game_status == GameStatus.PICKING:
-                        show_str += (f'{queue}: Game {game_id} (Picking): '
+                        show_str += (f'Game {game_id} (Picking): {queue} - '
                                      f'{capt_nicks[0]} vs '
                                      f'{capt_nicks[1]}\n')
                     elif game_status == GameStatus.INPROGRESS:
                         if time_since_pick <= bet_window:
-                            show_str += (f'{queue}: Game {game_id} ({bet_window - time_since_pick} seconds left to '
-                                         f'bet): {capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
+                            time_str = TimeDuration.from_seconds(bet_window - time_since_pick)
+                            show_str += (f'Game {game_id} ({time_str} left to bet): {queue} - '
+                                         f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
                         else:
-                            show_str += (f'{queue}: Game {game_id} (Betting closed): '
+                            show_str += (f'Game {game_id} (Betting closed): {queue} - '
                                          f'{capt_nicks[0]}({total_amounts[GameStatus.TEAM1]}) versus '
                                          f'{capt_nicks[1]}({total_amounts[GameStatus.TEAM2]})\n')
             success = True
@@ -807,7 +810,7 @@ def start_bot(db, ts, logger):
                        f'Team1, Team2, Tied or Cancelled.')
                 await send_dm(user_id, msg)
             else:
-                team_id_strs: tuple[str, str] = game[1:3]
+                team_id_strs: Tuple[str, str] = game[1:3]
                 capt_ids_strs = [team_id_str.split()[0] for team_id_str in team_id_strs]
                 queue: str = game[3]
                 if queue in ('NA', 'EU', 'AU', 'TestBranch'):
@@ -1717,54 +1720,66 @@ def start_bot(db, ts, logger):
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_test(ctx):
-        if ctx.invoked_subcommand is None:
+        if ctx.invoked_subcommand is None or not DEBUG:
             await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='win', help='Simulate win result message')
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_test_win(ctx):
-        title = "Game 'NA' finished"
-        description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' finished"
+            description = '**Winner:** Team RedFox\n**Duration:** 5 Minutes'
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='tie', help='Simulate tie result message')
     @in_channel(BOT_CHANNEL_ID)
     @is_admin()
     async def cmd_test_tie(ctx):
-        title = "Game 'NA' finished"
-        description = '**Tie game**\n**Duration:** 5 Minutes'
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' finished"
+            description = '**Tie game**\n**Duration:** 5 Minutes'
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='pick', help='Simulate picked message')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_test_picked(ctx):
-        title = "Game 'NA' teams picked"
-        bot_nick, = db.get_user_data_by_discord_id(DISCORD_ID, ('nick',))
-        description = ('**Teams**:\n'
-                       'RedFox: RR, Swordfish, TylerMarket, IceHawk\n'
-                       f'{bot_nick}: Matin, cl0wn, smokin, lastofspades\n'
-                       '\n'
-                       '**Maps**: Elite, Exhumed')
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' teams picked"
+            bot_nick, = db.get_user_data_by_discord_id(DISCORD_ID, ('nick',))
+            description = ('**Teams**:\n'
+                           'RedFox: RR, Swordfish, TylerMarket, IceHawk\n'
+                           f'{bot_nick}: Matin, cl0wn, smokin, lastofspades\n'
+                           '\n'
+                           '**Maps**: Elite, Exhumed')
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @cmd_test.command(name='begin', help='Simulate begin message')
     @is_admin()
     @in_channel(BOT_CHANNEL_ID)
     async def cmd_test_begin(ctx):
-        title = "Game 'NA' has begun"
-        description = (f'**Captains: <@{REDFOX_DISCORD_ID}> & <@{DISCORD_ID}>**\n'
-                       'RR, Swordfish, TylerMarket, IceHawk, Matin, cl0wn, smokin, lastofspades')
-        embed_msg = discord.Embed(description=description, color=0x00ff00)
-        await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
-        await ctx.message.add_reaction(REACTIONS[True])
+        if DEBUG:
+            title = "Game 'NA' has begun"
+            description = (f'**Captains: <@{REDFOX_DISCORD_ID}> & <@{DISCORD_ID}>**\n'
+                           'RR, Swordfish, TylerMarket, IceHawk, Matin, cl0wn, smokin, lastofspades')
+            embed_msg = discord.Embed(description=description, color=0x00ff00)
+            await ctx.send(content='`{}`'.format(title.replace('`', '')), embed=embed_msg)
+            await ctx.message.add_reaction(REACTIONS[True])
+        else:
+            await ctx.message.add_reaction(REACTIONS[False])
 
     @bot.event
     async def on_message(message):
@@ -1781,7 +1796,7 @@ def start_bot(db, ts, logger):
                     for line in embed.description.split('\n'):
                         logger.debug(f'\t\t{line}')
         # Parse BullyBot's messages for game info
-        if ((message.author.id == BULLYBOT_DISCORD_ID or message.author.id == DISCORD_ID)
+        if ((message.author.id == BULLYBOT_DISCORD_ID or (DEBUG and message.author.id == DISCORD_ID))
                 and message.channel.id == PUG_CHANNEL_ID):
             if 'Game' in message.content:
                 if 'begun' in message.content:
@@ -1836,8 +1851,8 @@ def main():
         raise ValueError(
             f"log level given: {options.log}"
             f" -- must be one of: {' | '.join(levels.keys())}")
-    logging.basicConfig(filename='shazbuckbot.log', format='%(asctime)s %(levelname)-8s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p',
-                        level=level)
+    logging.basicConfig(filename='shazbuckbot.log', format='%(asctime)s %(levelname)-8s: %(message)s',
+                        datefmt='%m/%d/%Y %I:%M:%S %p', level=level)
     logger = logging.getLogger(__name__)
     # Prevent a second instance from running
     lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)

@@ -35,6 +35,10 @@ class TimeDuration:
     SECONDS_PER_UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
     def __init__(self, value: int, unit: str):
+        if not isinstance(value, int):
+            raise TypeError('value argument not an integer')
+        if not isinstance(unit, str) or unit not in TimeDuration.SECONDS_PER_UNIT:
+            raise TypeError('unit argument not an a unit letter')
         self.value = value
         self.unit = unit
 
@@ -47,7 +51,7 @@ class TimeDuration:
 
     @classmethod
     def from_string(cls, argument):
-        if type(argument) == str and len(argument) > 1:
+        if isinstance(argument, str) and len(argument) > 1:
             unit = argument[-1]
             if unit in TimeDuration.SECONDS_PER_UNIT and argument[:-1].isdigit():
                 value = int(argument[:-1])
@@ -56,6 +60,17 @@ class TimeDuration:
                 raise commands.BadArgument('Incorrect string format for TimeDuration.')
         else:
             raise commands.BadArgument('No string or too short for TimeDuration.')
+
+    @classmethod
+    def from_seconds(cls, seconds: int):
+        times = {key: round(seconds/TimeDuration.SECONDS_PER_UNIT[key]) for key in TimeDuration.SECONDS_PER_UNIT}
+        value = 0
+        unit = 's'
+        for key in times:
+            if value == 0 or (times[key] != 0 and times[key] < value):
+                value = times[key]
+                unit = key
+        return cls(value, unit)
 
     @property
     def to_seconds(self):

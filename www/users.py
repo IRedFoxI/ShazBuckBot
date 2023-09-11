@@ -28,7 +28,10 @@ if form.getvalue('discord_id'):
 conn = sqlite3.connect(DATABASE)
 cur = conn.cursor()
 cur.execute(sql, values)
-data = [dict((cur.description[i][0], value) for i, value in enumerate(row)) for row in cur.fetchall()]
+data = [
+    {cur.description[i][0]: value for i, value in enumerate(row)}
+    for row in cur.fetchall()
+]
 conn.close()
 
 if data:

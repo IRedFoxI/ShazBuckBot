@@ -51,8 +51,7 @@ if __name__ == '__main__':
     bot_user_id = 1
     curr = db_conn.cursor()
     curr.execute("SELECT id, nick, balance FROM users")
-    data = curr.fetchall()
-    if data:
+    if data := curr.fetchall():
         for player in data:
             player_id: int = player[0]
             nick: str = player[1]

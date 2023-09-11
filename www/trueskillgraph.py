@@ -53,8 +53,7 @@ for discord_id in discord_ids:
         sql = ''' SELECT nick FROM users WHERE discord_id = ? '''
         cur = conn.cursor()
         cur.execute(sql, (discord_id,))
-        user = cur.fetchone()
-        if user:
+        if user := cur.fetchone():
             nick = user[0]
         nicks.append(nick)
 

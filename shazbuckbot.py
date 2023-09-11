@@ -76,13 +76,12 @@ def suggest_even_teams(db, player_ids) -> (List[int], List[int], float):
     :param list[int] player_ids: List of discord ids
     :return: Two lists of discord ids and the chance to draw
     """
-    player_ratings = {}
-    for player_id in player_ids:
-        data = db.get_trueskill_rating(player_id)
-        if data:
-            player_ratings[player_id] = Rating(data[0], data[1])
-        else:
-            player_ratings[player_id] = Rating()
+    player_ratings = {
+        player_id: Rating(data[0], data[1])
+        if (data := db.get_trueskill_rating(player_id))
+        else Rating()
+        for player_id in player_ids
+    }
     best_team1_ids = []
     best_team2_ids = []
     best_chance_to_draw = 0
@@ -111,8 +110,7 @@ def calculate_win_chance(db, teams_ids) -> float:
     for team_ids in teams_ids:
         team_rating = []
         for player_id in team_ids:
-            data = db.get_trueskill_rating(player_id)
-            if data:
+            if data := db.get_trueskill_rating(player_id):
                 if data[2] < MIN_NUM_GAMES_FOR_TS:
                     enough_data = False
                     break

@@ -62,6 +62,6 @@ class TwitchStreams:
             'Authorization': f'Bearer {self.twitch_access_token}',
             'Client-Id': f'{self.twitch_client_id}',
         }
-        url = f'https://id.twitch.tv/oauth2/validate'
+        url = 'https://id.twitch.tv/oauth2/validate'
         response = requests.get(url, headers=headers)
         return response.status_code == 200

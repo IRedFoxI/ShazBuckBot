@@ -30,10 +30,7 @@ class DataBase:
 
         cur = self.conn.cursor()
         cur.execute("PRAGMA user_version")
-        data = cur.fetchone()
-        db_version = 0
-        if data:
-            db_version = data[0]
+        db_version = data[0] if (data := cur.fetchone()) else 0
         if db_version < DATABASE_VERSION:
             self.update_database(db_version, default_bet_window)
 
@@ -144,11 +141,7 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM users WHERE id = ? ''', (user_id,))
-        data = cur.fetchone()
-        if data:
-            return tuple(data)
-        else:
-            return tuple()
+        return tuple(data) if (data := cur.fetchone()) else tuple()
 
     def get_user_data_by_discord_id(self, discord_id, fields) -> tuple:
         """Get user data from database
@@ -160,11 +153,7 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM users WHERE discord_id = ? ''', (discord_id,))
-        data = cur.fetchone()
-        if data:
-            return tuple(data)
-        else:
-            return tuple()
+        return tuple(data) if (data := cur.fetchone()) else tuple()
 
     def get_top5(self) -> List[Tuple[str, int, int]]:
         """Returns the top 5
@@ -175,13 +164,7 @@ class DataBase:
         cur = self.conn.cursor()
         cur.execute(sql)
         data = cur.fetchall()
-        top5 = []
-        for user in data:
-            nick: str = user[0]
-            discord_id: int = user[1]
-            balance: int = user[2]
-            top5.append((nick, discord_id, balance))
-        return top5
+        return [(user[0], user[1], user[2]) for user in data]
 
     def get_beggars(self) -> List[Tuple[str, int, int]]:
         """Returns the beggars
@@ -195,13 +178,7 @@ class DataBase:
         cur = self.conn.cursor()
         cur.execute(sql)
         data = cur.fetchall()
-        beggars = []
-        for user in data:
-            nick: str = user[0]
-            discord_id: int = user[1]
-            amount: int = user[2]
-            beggars.append((nick, discord_id, amount))
-        return beggars
+        return [(user[0], user[1], user[2]) for user in data]
 
     def get_philanthropists(self) -> List[Tuple[str, int, int]]:
         """Returns the philanthropists
@@ -215,13 +192,7 @@ class DataBase:
         cur = self.conn.cursor()
         cur.execute(sql)
         data = cur.fetchall()
-        beggars = []
-        for user in data:
-            nick: str = user[0]
-            discord_id: int = user[1]
-            amount: int = user[2]
-            beggars.append((nick, discord_id, amount))
-        return beggars
+        return [(user[0], user[1], user[2]) for user in data]
 
     def set_user_data(self, user_id, fields, values) -> None:
         """Set values of a user
@@ -329,7 +300,7 @@ class DataBase:
         :param int game_id: The id of the game to be finished
         :param int result: The result of the game in GAME_STATUS format
         """
-        if result not in set(r.value for r in GameStatus):
+        if result not in {r.value for r in GameStatus}:
             raise ValueError()
         values = (result, game_id)
         sql = ''' UPDATE games SET status = ? WHERE id = ?'''
@@ -376,8 +347,7 @@ class DataBase:
                   bet_window FROM games WHERE id = ? '''
         cur = self.conn.cursor()
         cur.execute(sql, (game_id,))
-        data = cur.fetchone()
-        if data:
+        if data := cur.fetchone():
             game_id: int = data[0]
             teams: Tuple[str, str] = data[1:3]
             queue: str = data[3]
@@ -399,11 +369,7 @@ class DataBase:
         fields = ', '.join(fields)
         cur = self.conn.cursor()
         cur.execute(f''' SELECT {fields} FROM games WHERE id = ? ''', (game_id,))
-        data = cur.fetchone()
-        if data:
-            return tuple(data)
-        else:
-            return tuple()
+        return tuple(data) if (data := cur.fetchone()) else tuple()
 
     def create_wager(self, wager) -> int:
         """Create a new wager into the wagers table
@@ -422,10 +388,7 @@ class DataBase:
         cur.execute("SELECT id FROM users WHERE discord_id = ?", (self.bot_discord_id,))
         bot_user_id: int = cur.fetchone()[0]
         transfer = (wager[0], bot_user_id, wager[3])
-        if self.create_transfer(transfer) == 0:
-            return 0
-        else:
-            return cur.lastrowid
+        return 0 if self.create_transfer(transfer) == 0 else cur.lastrowid
 
     def change_wager(self, wager_id, amount_change) -> None:
         """Change the wager amount
@@ -453,7 +416,7 @@ class DataBase:
         :param int wager_id: The id of the wager to be updated
         :param int result: Result of the wager in the format of WAGER_RESULT
         """
-        if result not in set(r.value for r in WagerResult):
+        if result not in {r.value for r in WagerResult}:
             raise ValueError()
         values = (result, wager_id)
         sql = ''' UPDATE wagers SET result = ? WHERE id = ? '''
@@ -498,11 +461,7 @@ class DataBase:
         values = (user_id, game_id, WagerResult.INPROGRESS)
         cur = self.conn.cursor()
         cur.execute(sql, values)
-        data = cur.fetchone()
-        if data:
-            return tuple(data)
-        else:
-            return tuple()
+        return tuple(data) if (data := cur.fetchone()) else tuple()
 
     def create_motd(self, motd) -> int:
         """Create a new motd into the motds table
@@ -545,11 +504,7 @@ class DataBase:
                       WHERE id = ? AND channel_id = ? AND end_time > strftime('%s','now') '''
         cur = self.conn.cursor()
         cur.execute(sql, (motd_id, channel_id))
-        data = cur.fetchone()
-        if data:
-            return tuple(data)
-        else:
-            return tuple()
+        return tuple(data) if (data := cur.fetchone()) else tuple()
 
     def get_motds(self, channel_id, *, general=False) -> List[Tuple[int, int, int, int, int, str]]:
         """Get the currently active MOTDs
@@ -588,11 +543,7 @@ class DataBase:
                   WHERE discord_id = ? ORDER BY game_id DESC LIMIT 1 '''
         cur = self.conn.cursor()
         cur.execute(sql, (player_id,))
-        data = cur.fetchone()
-        if data:
-            return tuple(data)
-        else:
-            return tuple()
+        return tuple(data) if (data := cur.fetchone()) else tuple()
 
     def new_trueskill_rating(self, player_id, game_id, rating) -> None:
         """

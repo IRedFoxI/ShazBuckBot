@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Calculate TrueSkill of players."""
 
+
 from enum import IntEnum, auto
 import yaml
 import sqlite3
@@ -93,13 +94,12 @@ for game in games:
                       VALUES(?, ?, ?, ?, ?) '''
             cur = conn.cursor()
             cur.execute(sql, trueskill_update)
-for player in player_ratings.keys():
+sql = ''' SELECT nick FROM users WHERE discord_id = ? '''
+for player in player_ratings:
     player_nick = player
-    sql = ''' SELECT nick FROM users WHERE discord_id = ? '''
     cur = conn.cursor()
     cur.execute(sql, (player,))
-    user = cur.fetchone()
-    if user:
+    if user := cur.fetchone():
         player_nick = user[0]
     rating = player_ratings[player]
     print(f'player: {player_nick}, mu: {rating.mu:.2f}, sigma: {rating.sigma:.2f}, '
